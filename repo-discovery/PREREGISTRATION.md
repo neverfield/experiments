@@ -152,7 +152,7 @@ resamples with a difference ≤ 0.
 
 Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendum records every way they departed from entry 7 and §5, and the conditions they ran under. Item 14 also records, before they run, how entry 6's L5 N = 50 test passes will run. It was written from the run's blind audit records: commits, queue and launch logs, `run.env` stamps, exit codes, case and attempt counts, trace status fields, per-case tool-call counts and timestamps. No prediction, ranking, metric or score of a test pass was opened to write it. Entry 7's text above is unchanged; where the two differ, this addendum governs.
 
-**Result.** All 34 registered test passes (17 agent cells × 2) are accepted: 31 on their first counted try and 3 on their second (item 2). Each has 59 predictions and 59 traces, 0 timeout cases and 0 provider-error cases (item 4). Each of the 22 passes whose method gives the agent an MCP tool meets the tool bound (item 1). Every accepted rerun ran from `c4b458f`, in runner image `sha256:9fd01807…c48906` with `cursor-agent` 2026.10.22-27dcf5f. The other 12 accepted passes are those kept from 2026-11-01 under entries 1 and 7. 10 of them ran from the pushed `f85b205`. The 2 `u50-real-c1-L2` passes have no recorded commit (item 13). Test spend is **$862.41**, above entry 5's $800 cap (item 6).
+**Result.** All 34 registered test passes (17 agent cells × 2) are accepted: 31 on their first counted try and 3 on their second (item 2). Each has 59 predictions and 59 traces, 0 timeout cases and 0 provider-error cases (item 4). Each of the 22 passes whose method gives the agent an MCP tool meets the tool bound (item 1). Every accepted rerun ran from `c4b458f`, in runner image `sha256:9fd01807…c48906` with `cursor-agent` 2026.10.22-27dcf5f. The other 12 accepted passes are those kept from 2026-11-01 under entries 1 and 7. 10 of them ran from the pushed `f85b205`. The 2 `u50-real-c1-L2` passes recorded no commit. By the worktree's reflog, pass 1 ran on the pushed `15ec4ed`, and pass 2 ran on `45f673c` before it was pushed (item 13). Test spend is **$862.41**, above entry 5's $800 cap (item 6).
 
 1. **The MCP tool didn't reach its server in 6 accepted passes, in all or most of their cases; a tool bound was added.**
    - **What happened.** In some cases the CLI started without the `repo-discovery` MCP server in its tool registry. From 2026-11-04 20:48 to about 2026-11-05 01:10 UTC, the agent called `search_repos` or `open_repo`, and the CLI refused every call locally, so the server logged none. In a second window, starting between 2026-11-05 08:28 and 16:40 UTC and ending between 2026-11-06 18:49 and 23:56 UTC, the agent found no such tool and never called it. The CLI binary was pinned and identical throughout, which rules it out; the cause isn't confirmed. Entry 7's bound counted only timeouts and provider errors, so all 6 passes had passed it. The failure was found on 2026-11-07, before 06:40 UTC, by comparing, per case, the MCP calls in the CLI's event log with the calls in the server's log.
@@ -270,7 +270,7 @@ Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendu
 
     | Pass | Accepted run | Host | Pre-turn retries | Non-provider fallbacks | Withdrawn copies, unscored | Counted tries |
     |---|---|---|---|---|---|---|
-    | p1/u50-real-c1-L2 | kept, 11-01 (entry 1; commit unknown, item 13) | laptop | 0 | 0 | none | 1 |
+    | p1/u50-real-c1-L2 | kept, 11-01 (entry 1; `15ec4ed` by reflog, item 13) | laptop | 0 | 0 | none | 1 |
     | p1/u50-hidden-c1-L2 | reruns-a, 11-05 05:54 | MBP | 0 | 0 | appledouble; concurrency | 1 |
     | p1/u250-hidden-c1-L2 | kept, 11-01 (`f85b205`) | laptop | 0 | 1 | appledouble | 1 |
     | p1/u250-real-c1-L3 | reruns-a, 11-05 08:38 | MBP | 0 | 0 | appledouble; unpushed-commit | 1 |
@@ -287,7 +287,7 @@ Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendu
     | p1/u10000-real-l5-n20 | kept, 11-01 (`f85b205`) | laptop | 0 | 0 | appledouble | 1 |
     | p1/u10000-hidden-c2-bm25f-L4 | reruns-g, 11-08 01:21 | mbp-1 | 0 | 0 | invalid-key†; deadline† (reruns-b); timeouts† (reruns-c); timeouts-g (reruns-f, cell 3) | 2 |
     | p1/u10000-real-c2-bm25f-L4 | reruns-f, 11-07 02:31 | mbp-1 | 1 | 0 | appledouble (2 cases); invalid-key†; provider† (reruns-c) | 1 |
-    | p2/u50-real-c1-L2 | kept, 11-01 (entry 1; `45f673c` before its push, item 13) | laptop | 0 | 0 | none | 1 |
+    | p2/u50-real-c1-L2 | kept, 11-01 (entry 1; `45f673c` by reflog, before its push, item 13) | laptop | 0 | 0 | none | 1 |
     | p2/u50-hidden-c1-L2 | reruns-a, 11-05 06:17 | MBP | 0 | 0 | invalid-key | 1 |
     | p2/u250-hidden-c1-L2 | reruns-a, 11-05 09:48 | MBP | 0 | 0 | invalid-key | 1 |
     | p2/u250-real-c1-L3 | kept, 11-01 (`f85b205`) | laptop | 0 | 0 | appledouble | 1 |
@@ -305,13 +305,18 @@ Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendu
     | p2/u10000-hidden-c2-bm25f-L4 | reruns-g, 11-08 03:41 | mbp-1 | 1 (3 attempts, item 9) | 1 | invalid-key; tool† (reruns-c); timeouts-g (list 12a) | 2 |
     | p2/u10000-real-c2-bm25f-L4 | list 10, 11-07 07:39 | mbp-1 | 0 | 1 | invalid-key; timeouts† (reruns-e); timeouts-f (reruns-f) | 2 |
 
-13. **The kept `u50-real-c1-L2` passes have no recorded commit.** Entry 1 kept both passes, because their L2 copies held no `._*` file, and entry 7 left them kept. They have no `run.env`, and no log records either one's commit.
-    - **Pass 2.** By the git reflog, it ran on `45f673c` before that commit was pushed. That conflicts with §5's rule that every test cell runs from one pushed commit. Entry 7 withdrew three passes for starting from `45f673c` before it was pushed.
-    - **Pass 1.** Its commit is unknown.
-    - Whether both stay kept, or are withdrawn and rerun whole as entry 7's unpushed-commit passes were, is still to be decided. What `45f673c` changed relative to `15ec4ed` is to be recorded here.
+13. **The kept `u50-real-c1-L2` passes recorded no commit, and pass 2 ran on an unpushed one.** Entry 1 kept both passes, because their L2 copies held no `._*` file, and entry 7 left them kept. The run recorded no commit for either: their pass directories hold only `pred.jsonl` and the traces beside the `.log`, there's no `run.env`, and neither the logs, nor the 2026-11-01 queue logs, nor `durations.json` names one. The commits below come from the git reflog of the worktree that the 2026-11-01 queues mounted. The reflog shows HEAD only, not whether the tree had uncommitted changes.
+    - **Pass 1** ran 08:17:00–08:24:21 UTC on 2026-11-01, on `15ec4ed`. HEAD was there from 06:45:59 to 09:24:54. `15ec4ed` was pushed at 06:46:00 and descends from the registered `76882fe`.
+    - **Pass 2** ran 10:31:21–10:40:53 UTC, on `45f673c`. HEAD was there from 09:36:46 to 11:31:16. `45f673c` was first pushed at 11:31:18, 50 minutes after pass 2 ended.
+    - **What differs.** `15ec4ed..45f673c` is two commits, which change 4 files by +32/−11 lines with no method change:
+      - `17ebece` adds `--resume` to `scripts/anonymize_corpus.py`, a corpus-build script.
+      - `45f673c` ([PR #35](https://github.com/ForeverTheIntern/experiments/pull/35)) changes how `candidate_digest` in `rankers/bm25.py` names each candidate's evidence directory: by name instead of by resolved path. It also edits two tests. `candidate_digest` is used only by the search index and the `search_repos` tool, and a `c1` L2 cell has no search tool.
+    - **Inconsistent with entry 7.** Pass 2 ran on an unpushed commit. Entry 7 sent three other passes to `runs/withdrawn-unpushed-commit/` for the same condition. Unless the registration distinguishes the two cases, keeping pass 2 is inconsistent with that withdrawal. Whether pass 2 stays kept, or is withdrawn and rerun whole, is Andrew's decision.
 
 14. **Entry 6's L5 N = 50 test passes, recorded before they run.**
     - **The passes.** Entry 6's four: p1 and p2 of `u5000-real-l5-n50` and `u10000-real-l5-n50`. Each command line is the registered N = 20 line with only `l5-n20` changed to `l5-n50` and `--open-budget 20` changed to `--open-budget 50`. `--registered 76882fe` is kept. They stay exploratory, as entry 6 says, so none enters H1–H3 or §4's secondary analyses.
-    - **When and where.** They'll be launched by hand on the laptop's runner (item 7), after entry 6's dev lists end on 2026-11-08, with `CAP=935`.
+    - **The list.** `n50-real-2026-11-08.txt`, sha256 `39ec2e29af535a0c8b558450c611a03347a3585d9fdb25cc016d3ec83d6839af`. It runs p1 U5000, p1 U10000, p2 U5000 and p2 U10000, in that order.
+    - **When and where.** They'll be launched by hand on the laptop's runner (item 7), with `CAP=935`, only after entry 6's dev timing lists finish on 2026-11-08.
+    - **Deadline.** The queue's deadline is 2026-11-09T06:00Z, with `MARGIN=1.25`. The queue skips any pass whose estimated duration × 1.25 doesn't fit before the deadline.
     - **The cap.** The coordinator raised the test cap from $925 to $935 under Andrew's budget delegation. Each pass is estimated at about 0.5 h and $11.70 to $11.90, about $47 for all four, or $62 on high figures. From $862.41, that ends near $909, or $924 on high figures. `queue.sh` starts a pass only while spend + $20 is within the cap; on high figures, that's about $929 before the fourth pass. Every registered pass is already accepted, so this raise can't change which registered runs exist or are scored.
     - **Held for them.** The optional dev U10000 hidden-name cell of entry 6's second dev pass (EXP-42's list 80) is held so that these passes can run.
