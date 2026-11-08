@@ -319,7 +319,7 @@ Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendu
       - Pass 2 is withdrawn on Andrew's decision, for the unpushed commit, consistent with entry 7.
       - Pass 1 is withdrawn by the coordinator under Andrew's standing rule (see the introduction), because its commit is known only from the reflog and its tree state is unknown. Andrew may still decide to keep pass 1.
     - **The reruns.** Both rerun whole from `c4b458f` on the laptop's runner (item 7), under item 4's bound: 0 timeout cases and 0 provider-error cases. `c1` gives the agent no tool, so the tool bound of item 1 doesn't apply. The cap for them is $950 (item 6).
-      - The withdrawn copies stay unscored and count toward test spend. Like entry 7's withdrawals, neither is a counted try (item 2).
+      - The withdrawn copies stay unscored and count toward test spend. Neither is a counted try. This is the coordinator's reading under item 2's recount: a commit and tree state that can't be verified is a setup failure, and the withdrawal was decided blind, not because of either pass's outcome. Item 12 still lists both withdrawn copies, so its table of tries stays complete.
       - A rerun that fails its bound is a counted try. The pass is then rerun whole again, which adds to item 3's selection effect.
 
 14. **Entry 6's L5 N = 50 test passes, recorded before they run.**
