@@ -147,3 +147,160 @@ resamples with a difference ≤ 0.
    - **Runner.** Replacing entry 4's "on the macOS laptop", the remaining cells run on the Docker Linux runner of deviation 6 (`docker/run.sh`, volume `rd-data`) on a host Andrew provides, with `cursor-agent` 2026.10.22 (entry 4). Each pass's `run.env` names its host, commit, image and CLI version, and a pass never resumes on another host. If the volume moves to a new host, it's copied whole. Before any cell runs there, its checksums must match the source's, and the corpus must hold 1,871,832 packet files and no `._*` file (entry 1). The timing pass and warm replay of entry 6 run on one host, which their run metadata names.
    - **Checks added before every cell,** beyond entry 4's: a $0 `cursor-agent models` with the run's key must list `composer-2.5`, and the CLI's background update check points at a closed local port, so no update can install mid-run. A trace whose error says the key was rejected stops its cell and the queue, and so does a pass that ends without a prediction and a trace for all 59 cases.
    - **Also.** The volume held 189 more AppleDouble `._*` files outside everything a cell reads: 2 at its root and 187 under its caches. They were listed and deleted.
+
+### Addendum to entry 7, 2026-11-08: the reruns, recorded before any test pass is scored
+
+Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendum records every way they departed from entry 7 and §5, and the conditions they ran under. It was written from the run's blind audit records: commits, queue and launch logs, `run.env` stamps, exit codes, case and attempt counts, trace status fields, per-case tool-call counts and timestamps. No prediction, ranking, metric or score of a test pass was opened to write it. Entry 7's text above is unchanged; where the two differ, this addendum governs.
+
+**Result.** All 34 registered test passes (17 agent cells × 2) are accepted: 31 on their first counted try and 3 on their second (item 2). Each has 59 predictions and 59 traces, 0 timeout cases and 0 provider-error cases (item 4). Each of the 22 passes whose method gives the agent an MCP tool meets the tool bound (item 1). Every accepted rerun ran from `c4b458f`, in runner image `sha256:9fd01807…c48906` with `cursor-agent` 2026.10.22-27dcf5f. The other 12 accepted passes are those kept from 2026-11-01 under entries 1 and 7. Test spend is **$862.41**, above entry 5's $800 cap (item 6).
+
+1. **The MCP tool didn't reach its server in 6 accepted passes, in all or most of their cases; a tool bound was added.**
+   - **What happened.** In some cases the CLI started without the `repo-discovery` MCP server in its tool registry. From 2026-11-04 20:48 to about 2026-11-05 01:10 UTC, the agent called `search_repos` or `open_repo`, and the CLI refused every call locally, so the server logged none. In a second window, starting between 2026-11-05 08:28 and 16:40 UTC and ending between 2026-11-06 18:49 and 23:56 UTC, the agent found no such tool and never called it. The CLI binary was pinned and identical throughout, which rules it out; the cause isn't confirmed. Entry 7's bound counted only timeouts and provider errors, so all 6 passes had passed it. The failure was found on 2026-11-07, before 06:40 UTC, by comparing, per case, the MCP calls in the CLI's event log with the calls in the server's log.
+   - **The 6 passes:** p1 and p2 `u5000-hidden-l5-n50`, p2 `u5000-real-l5-n20`, and p1 and p2 `u5000-real-c2-hybrid-L4`, all from queue reruns-a in the first window (p2 hybrid's server logged calls in 15 of 59 cases, the others' in none); and p2 `u10000-hidden-c2-bm25f-L4`, from reruns-c in the second. They were moved aside unread to `runs/withdrawn-tool/` on 2026-11-07 at 07:26 UTC and rerun whole. Their $57.08 stays in test spend.
+   - **Withdrawn runs that also fail the tool bound: 13.** 4 ran in the second window: the withdrawn U10000 runs of reruns-b, reruns-c and reruns-e. The other 9 ran on 2026-11-01 and were already withdrawn under entry 7. Among them are 4 revoked-key passes, whose cases after the key was rejected never opened a session. The other 5 are the 4 concurrency passes with a tool and the unpushed-commit p1 `u5000-real-c2-hybrid-L4`, and in 3 of these 5 the failure began mid-cell. In the one read with the filter of item 10, withdrawn-concurrency p1 `u5000-hidden-l5-n50`, the CLI refused the agent's calls as in the first window. So the failure wasn't confined to the two windows. The sources don't say when on 2026-11-01 it began. Every pass kept from 2026-11-01 whose method gives a tool reached it in all 59 cases.
+   - **The tool bound.** Adopted on 2026-11-07 at about 06:40 UTC, before any score was read. It applies to every pass of a method that gives the agent an MCP tool, beside the bound of item 4:
+     - (a) 0 cases in which the CLI recorded MCP calls and the server logged none;
+     - (b) at most 2 of 59 cases with no MCP call at all.
+     - (b) isn't 0 because two working passes from 2026-11-01, withdrawn under entry 1, had 1 and 2 cases in which the agent made no call, and the CLI and server logs agree on them. Replayed over all 79 test and withdrawn passes on the volume, the bound flags exactly the 19 broken ones. Every accepted tool pass has a server-logged call in all 59 cases, so it meets the strict form too.
+   - **Guards, installed 2026-11-07 07:26:22 UTC, from list 10 on:**
+     - the queue stops a cell, as an infrastructure failure, when its 3 most recently finished cases have no server-logged call;
+     - after each cell, it checks the tool bound and logs a WARN if it fails;
+     - before each launch, a tool preflight runs one real-name U250 dev case for each tool the list uses, and refuses the launch unless the server logs a call that the CLI reports `ok`.
+     - The preflight shows that the tool reaches its server, not that the cell's own method and index work; there are no dev search indexes at the test sizes. Its cases are dev spend, outside the test total.
+   - **The dev picks are unaffected.** All 73 dev passes picked in §3 whose method gives a tool used it in all 61 cases. Every dev run predates 2026-11-01, but since the failure also hit runs that day, the date alone doesn't clear them. For 67 of them the server's own log shows the calls. For the 6 EXP-19 `c2` picks on `d292f80`, the export holds only the CLI's call counts, so a refused-call failure like the first window's isn't ruled out for them; their dev traces would settle it.
+   - **Not yet tested:** the harness passes the CLI no `--approve-mcps`. If the service changed when a headless session's MCP servers need approval, that would explain every broken run. It's to be tested on dev cases only, after the test run.
+
+2. **Infrastructure-failure reruns, and the recount of tries.**
+   - **The recount.** A try counts only if the pass ran to its end with its MCP tool reached (or with no tool) and was audited against its bound. These don't count: a withdrawal under entry 1 (AppleDouble files) or entry 7 (revoked key, unpushed commit, concurrency), a pass stopped before its end, and a pass that fails the tool bound. Each of these is an infrastructure failure, and the pass is rerun whole as entry 7 says. The coordinator proposed this on 2026-11-07 at about 07:00 UTC. Andrew accepted it on 2026-11-07 at 16:14 UTC, as the coordinator relayed, when he approved both hidden-name reruns below. No score had been read.
+   - **What it replaced.** Before the outage was known, the run had fixed two "last run" rules: p1 `u10000-hidden-c2-bm25f-L4` would get no third run (2026-11-06 04:30 UTC), and p2 `u10000-real-c2-bm25f-L4` no fourth (2026-11-07 03:40 UTC). Their earlier runs in reruns-b, reruns-c and reruns-e never reached the tool, so under the recount they aren't tries.
+     - p2 real-name's counted tries are reruns-f (3 timeout cases and 1 provider-error case) and then list 10, which passed.
+     - p1 hidden's first counted try is reruns-f's cell 3 (1 timeout case). p2 hidden's tool-broken reruns-c pass doesn't count, so its first counted try is list 12a (1 timeout case).
+     - Both hidden cells were rerun once more, in queue reruns-g, and both passed.
+   - **Cell 3's timeout** was judged under a rule the coordinator fixed before the case was examined. It counts as an infrastructure failure only if (a) time outside the agent's turns counted against the 300 s limit and the case's setup took more than twice the cell's median, and (b) with median setup the run would have ended under 300 s. Neither held: setup took 116.6 s against a median of 105.0 s, and setup isn't on the 300 s clock. So it's a method timeout, and the pass failed as it stood. List 12a's timeout case wasn't examined; the pass failed on it as it stood.
+   - **Counts.** 31 passes were accepted on their first counted try. 3 were accepted on their second: p2 `u10000-real-c2-bm25f-L4` (list 10), and p1 and p2 `u10000-hidden-c2-bm25f-L4` (reruns-g). Item 12 lists each pass's tries and withdrawn copies. Every withdrawn copy stays under `runs/withdrawn-*/`, counts toward test spend, and is never scored.
+
+3. **Rerunning a pass until it has 0 timeouts selects the runs that are accepted.** Every accepted pass has 0 timeout cases, because a pass with any was withdrawn and rerun whole. Under §5 alone, timeout cases would have been scored as written. So each accepted pass is conditioned on every case's main run ending within 300 s, and a cell that needed more runs went through that filter more times. Such a cell is more likely than a first-try cell to have been accepted on a run in which the provider or the agent happened to be fast. The recount (item 2) allowed the extra runs of the two hidden cells.
+   - The 3 failed counted tries are all U10000 `c2-bm25f-L4` passes, which enter §4's secondary analyses, not H1–H3.
+   - Runs withdrawn for other reasons also held timeouts, and their reruns went through the same filter. 8 of the passes run on 2026-11-01 after entry 1's fix had 1 to 12 timeout cases each, among them 4 U5000 passes that feed H1–H3; the AppleDouble copies weren't counted. And 4 U10000 runs in reruns-b, reruns-c and reruns-e that never reached the tool had 1 to 28 each.
+   - The withdrawn copies are never scored, so the size of the effect can't be measured blind.
+
+4. **The audit bound for rerun passes.** On 2026-11-04 at 20:28 UTC, before any rerun started, Andrew asked that every rerun pass meet the rule entry 7 applied to the passes it kept, with the dev-run mapping extended to the rerun cells by the same rule, before it's scored. For every rerun cell but one, that's 0 timeout cases and 0 provider-error cases. `u1000-hidden-c1-L4` allows 29 provider-error cases. Entry 7 applied the rule because cells had run 4 to 6 at once; the reruns ran one cell at a time, and the bound still withdrew any pass with a timeout case (item 3).
+   - **Provider-error case,** defined by Andrew on 2026-11-04 at 21:18 UTC and clarified at 21:26 UTC, before any rerun was audited: a case whose run was rerun whole after a provider error (`provider_error_rerun`), or whose final `status` or `follow_up_status` is `error`. It replaces the definition behind entry 7's counts, for every pass. Under it, entry 7's pass 2 of `u10000-real-l5-n20` has 1 provider-error case, not 2. That's still above its dev bound, so no keep or withdrawal of entry 7 changes.
+   - **Logged and not counted:** pre-turn retries, where a session was refused or stalled before its first turn and was retried as §5 says, and non-provider fallbacks, where a case wrote its fallback ranking after `turn_budget`, or after a follow-up that timed out or hit its turn limit. Item 12 gives them per accepted pass: 4 pre-turn retries in 4 passes, and 19 non-provider fallbacks in 13 passes. Item 9 covers the one run that took 3 attempts.
+   - **The timeout bound stayed at 0** when pass 2 of `u10000-real-c2-bm25f-L4` failed on 1 timeout case in reruns-e. The coordinator decided this once that pass had ended, since every pass accepted until then had met it.
+   - **A pass that fails its bound** isn't rerun by the queue; the coordinator and Andrew decide. Every such pass was withdrawn unread and rerun whole.
+
+5. **Queues, start rules and stops.** The 7 passes of the four U5000 cells that feed H1–H3 ran first, as entry 7 says; 5 of them failed the tool bound and were rerun last (item 1). Entry 7's start rule, an estimated duration plus 25% that must end before the host's run window closes, was used only by the first queue. Each later queue's start rule was set from observed durations before its launch, except reruns-b's, which had none and a hard stop instead. Two passes were stopped by hand, and as entry 7 says, each was moved aside and rerun whole. reruns-c's provider errors may have come from other use of the Cursor account, though that isn't confirmed. So from reruns-e on, the launch steps asked Andrew to pause other uses of the account before each launch he made. Whether the account had other use during a pass can only be checked on the account side, and the agent sessions operating the run used the same account throughout.
+
+   | Queue | Launched (UTC) | Start rule | Passes | Outcome |
+   |---|---|---|---|---|
+   | reruns-a | 11-04 20:33 | estimate × 1.25, window to 11-05 11:50 | entry 7's 22 | 18 ran and passed the bound of item 4; 5 of them later failed the tool bound (item 1). The 4 U10000 `c2-bm25f-L4` passes were skipped, needing 16.0 to 16.5 h with 3.36 h left. |
+   | reruns-b | 11-05 16:21 | none (`MARGIN=0`), hard stop at 22:00 | p1 U10000 hidden | Stopped by hand at 20:50, when Andrew needed the laptop, with 46 of 59 cases. Withdrawn. |
+   | reruns-c | 11-05 22:30 | observed pace × 1.1 (`MARGIN=0.44`) | p1 U10000 hidden, p2 U10000 hidden, p1 U10000 real | p1 hidden failed (15 timeout cases). p2 hidden passed, and was later withdrawn for the tool. p1 real-name was stopped by hand at 11-06 07:20, after provider errors and, from 06:13, a timeout in every case. |
+   | reruns-d | not launched | | | Cancelled at 11-06 07:19, after the provider errors. |
+   | reruns-e | 11-06 15:28 | longest observed pass × 1.1, 3.08 h (`MARGIN=0.233`) | p2 U10000 real, then p1 | p2 real-name failed (1 timeout case). p1 was skipped by the start rule. |
+   | reruns-f | 11-06 23:41 | 3.08 h (`MARGIN=0.2403`) | p2 U10000 real, p1 U10000 real, p1 U10000 hidden | p2 real-name failed (3 timeout cases, 1 provider-error case). p1 real-name was accepted. p1 hidden (cell 3) failed (1 timeout case). |
+   | list 10 | 11-07 07:27 | 3.08 h (`MARGIN=0.2329`) | p2 U10000 real | Accepted. |
+   | list 12a | 11-07 09:51 | 3.08 h (`MARGIN=0.2403`) | p2 U10000 hidden | Failed (1 timeout case). |
+   | list 12b | 11-07 12:30 | 3.08 h (`MARGIN=0.5256`) | p1 and p2 U5000 real hybrid | Both accepted. |
+   | reruns-g | 11-07 23:15, by hand | 3.08 h for the hidden cells (`MARGIN=0.2403`) | p1 and p2 U5000 hidden L5, p2 U5000 real L5, then p1 and p2 U10000 hidden | All 5 accepted. |
+
+   Lists 10, 12a and 12b were launched by a weekend launcher on the laptop, a long-running process that launched audited lists from a gate directory in name order until 2026-11-09 04:00 UTC. It ran each list through a one-turn preflight and the tool preflight (item 1), and refused any list that named a withdrawn pass's output.
+
+6. **The spend cap rose from $800 to $925, for the last queue only.**
+   - Entry 7 said that if a rerun would cross $800, the run stops before any pass-2 cut, and the cut is recorded here first. Instead, the cap was raised and the run went on; no pass-2 cut was made. The tool reruns of item 1 and the hidden-name reruns of item 2 pushed the projection over $800.
+   - The coordinator asked Andrew for $875 on 2026-11-07 at about 07:00 UTC. At 13:09 UTC the request changed to $925, to cover both hidden-name reruns with room for one more pass. Andrew approved it at 16:14 UTC. No queue ran under a cap of $875.
+   - $925 applied only to queue reruns-g. Andrew launched it by hand at 23:15:46 UTC with `CAP=925 MARGIN=0.2403`, as its launch log records. Under $800, none of its five passes could have started: a cell starts only while spend + $20 is within the cap, and the first needed $805.22. Spend crossed $800 during its second pass.
+   - The cap reaches a queue only through the environment of whatever launches it: `go.sh` passes `CAP` into the container, and `queue.sh` uses $800 when it isn't set. The weekend launcher was started before any raise, and its environment wasn't read, so the cap in force for lists 10, 12a and 12b isn't recorded. Each of their cells started with spend + $20 below $789, so each would have started under $800. The 3 U5000 L5 reruns were held out of the gate and run in reruns-g so that they would run under the raised cap.
+   - No method, case, prompt, per-case budget, K or analysis changed, and no score had been read. Unlike entry 5's raise, this one isn't clearly inference-neutral. It let the two hidden-name cells run again after a failed counted try, which adds to item 3's selection effect.
+   - **Spend.** $402.23 at entry 7, $613.84 when reruns-a ended, $785.22 when list 12b ended, and **$862.41** when reruns-g ended. Entry 7 had projected about $240 for the reruns, for a total of about $640; the difference is the runs withdrawn during the reruns and their reruns. The total is `spend.py` over `runs/test` and every `runs/withdrawn-*` directory, plus $3.26 untraced. `spend.py` counts a rerun case's first attempt twice, so the total errs high. Two queues' running totals left out a withdrawn directory created after they started, by up to $15.09, but every start check still held on the true total. Not in the total: the one-turn preflights, about $0.006 a launch, and the tool preflights' dev cases, about $0.29 in all.
+   - **Entry 6's L5 N = 50 test cells haven't run.** Entry 6 put them at about $49 at dev rates. At the default $800 cap, `queue.sh` would refuse them, so whether they run, and under what cap, is still to be decided.
+
+7. **Hosts and tooling.**
+   - **Host.** Every rerun pass ran on the macOS laptop's Docker Linux runner (`docker/run.sh`, volume `rd-data`), as entry 4 had it; that laptop is the host Andrew provided under entry 7. Its `run.env` names it `Andrews-MBP/Darwin-arm64` in reruns-a, `Andrews-MacBook-Pro/Darwin-arm64` in reruns-b, and `andrews-macbook-pro-1/Darwin-arm64` from reruns-c on. That's one machine, with 15 CPUs, whose hostname changed. The Docker engine and volume stayed the same, so the volume was never moved or copied. The 12 kept passes ran on the same laptop and have no `run.env`. No test pass ran anywhere else. A cloud Linux VM was set up on 2026-11-04 and dropped the same day, before entry 7 was written, because its network blocked the Cursor API. It ran no agent call and no test case.
+   - **The laptop's use.** The co-host sampler sees only containers, not the laptop's own applications. Andrew's use of the laptop was logged for several withdrawn passes, but not for every pass.
+   - **Tools hash.** Each queue stamps `tools=` in `run.env`. It's a hash over every file in the git-ignored `.local/run/` directory, which holds the queue scripts, the launch lists and the audit scripts, excluding `selftest/`. It changes whenever a list is added or moved, not only when a script changes. During the reruns, the scripts the queue runs changed only for the tool guards of item 1. The host-side launcher `go.sh` and an audit script were saved on 2026-11-04 after reruns-a had launched.
+
+     | Queue | Tools hash | Passes accepted |
+     |---|---|---|
+     | reruns-a | `07a1bb69cc339dc7` | 13 |
+     | reruns-b | `13ac2bb41c9b50f1` | 0 |
+     | reruns-c | `47582c511adc2542` | 0 |
+     | reruns-e | `23af0b03606f9b36` | 0 |
+     | reruns-f | `8e82081bec14826c` | 1 |
+     | list 10, the first with the tool guards | `0f18e450fb5020f9` | 1 |
+     | list 12a | `975f1545a2589700` | 0 |
+     | list 12b | `6c96053a46a231d6` | 2 |
+     | reruns-g | `b67f0981f84a757b` | 5 |
+
+   - **Checks beyond entry 7's:**
+     - a co-host load sampler in every queue, which reads other containers' CPU for 2 minutes at each cell's start and every 30 minutes, logs a WARN above 1 core and stops the cell above 2 (none stopped);
+     - from reruns-e on, a one-turn preflight before each launch;
+     - from list 10 on, the tool guards of item 1.
+   - **After the last test cell,** the tooling was changed for entry 6's dev lists, which changed the hash to `34e29067c97e585b` and then `ce167db78053b33c`. No test cell ran under either.
+
+8. **Containers on the run host.**
+   - **Another project's containers** (`readiness-aud`) ran on the same Docker engine throughout and were left alone. In reruns-a, three cell-start samples read above 1 core (1.03 to 1.94 cores) and were logged as WARNs; none reached the 2-core stop. One of those passes is accepted (p2 `u1000-hidden-l5-n50`, at 1.03 cores); the other two were later withdrawn for the tool. Every sample from reruns-c on read 0.00 cores.
+   - **The operating agents' own containers.** Until 2026-11-07 07:00 UTC, no rule kept them off the host, and short read-only checks and move-aside containers ran during test cells; Docker's event history no longer lists all of them. During reruns-f's cell 3 (p1 `u10000-hidden-c2-bm25f-L4`, 04:46 to 07:25 UTC), 28 containers ran on `rd-data` from 06:11 to 06:53. 24 lasted 0 to 14 s each: status reads, the tool-bound replay and the guard selftests, all with `--network none`. Two tests of the new tool preflight failed at once. Two more ran the harness for 300 s each, with network access, on one U250 dev case with a fake key, so each CLI waited on a rejected key until the limit. The second of these covered the last 59 s of setup and the first 243 s of the main run of cell 3's only timeout case. Their load wasn't sampled. The case was judged a method timeout (item 2).
+   - **From 2026-11-07 07:00 UTC,** by the coordinator's rule, no containers and no Docker tests ran on the host while a test queue ran or a list was about to launch, unless the coordinator approved first. The approved exception was one short read-only audit container per finished cell: `--network none`, `rd-data` mounted read-only, `--cpus 1`, under 60 s, reading status fields and `run.env` only, logged in that cell's audit. These ran while a later test cell was running:
+
+     | Container | Ran (UTC) | Test cell running |
+     |---|---|---|
+     | `rd-aud-wk10`, then `rd-aud-wk10b` (the first exited on an import error) | 11-07 10:23:15–17, 10:25:14–15 | p2 U10000 hidden, list 12a |
+     | `rd-aud-wk12a` | 11-07 13:06:12–13 | p1 U5000 real hybrid, list 12b |
+     | `rd-aud-wk12b1` | 11-07 14:41:33–34 | p2 U5000 real hybrid, list 12b |
+     | `rd-aud-g1` | 11-08 00:21:45 | p2 U5000 hidden L5, reruns-g |
+     | `rd-aud-g2`, `rd-aud-g3` | 11-08 01:23:23–25, 01:23:35–36 | p1 U10000 hidden, reruns-g |
+     | `rd-aud-g4` | 11-08 03:56:45–46 | p2 U10000 hidden, reruns-g |
+
+     The first two ran during list 12a, which failed on 1 timeout case. Whether that case overlapped them wasn't checked. The other containers after 07:00 ran with no test cell running. They include the audits after list 12b and reruns-g ended; the two `rd-move-g` containers that moved both failed hidden-name passes aside, the first of which failed before moving anything; and `rd-aud-g5r`, which read the 3-attempt run of item 9.
+
+9. **Pre-turn retries, including one run that took 3 attempts.** Pre-turn retries are logged and not counted (item 4). One run took 3 attempts, the first logged with more than 2: the main run of one case in the accepted pass 2 of `u10000-hidden-c2-bm25f-L4` (reruns-g). Its first two attempts ended before the CLI emitted any event, so before a session opened. The harness keeps only the final attempt's record, so whether each was an error or a timeout isn't recorded. The third attempt opened a session, with its first event at 53.8 s, and ran 21 model turns to its turn budget in 126.5 s. The case wasn't rerun whole, has no `error` status, and its follow-up took 1 attempt. §5 allows up to 3 retries, so this is within it, and it isn't a provider-error case.
+
+10. **What was read, and incidental reads.**
+    - The audits read trace status and attempt fields, `parse` status, case and attempt counts, per-case tool-call counts with each logged call's outcome and CLI status, timing fields, `run.env`, and queue and host logs. No prediction, ranking, metric, score, answer or agent text of a test pass was opened.
+    - **Two approved filtered reads went further.**
+      - On 2026-11-07 at about 06:20 UTC, to find the outage's cause, a filter read one broken and one working withdrawn pass per window. It printed only MCP error fields, rejection reasons, the tool names in MCP tool listings, and system-event fields. No accepted pass was read this way.
+      - On 2026-11-08 at 06:27 UTC, for the 3-attempt run of item 9, a filter read that one case's events in the accepted pass. It printed only event types and subtypes, run times, whether a session ID existed, and model-call counts. It printed no message text, ranking or answer.
+    - **Incidental reads.** A cloud worker's `grep` printed a few lines from U50 test traces: snippets of a tool's README, with no prediction or score. The same output printed three lines from `internal/selection/predictions/v1/*.jsonl` in the study's agent store. They're believed to be dev-split predictions, but that hasn't been checked. Nothing in this addendum draws on them, and no run file records them beyond this entry.
+
+11. **Correction to §2.** §2 says "The dev salts are lost." That's untrue for the published dev salt. The study's agent store holds it, with the U10000 dev build made under it, and entry 6's hidden-name second dev pass runs on it. The other dev salts weren't checked. The test passes used §2's new salt, which is unchanged.
+
+12. **Each pass.** Accepted run: the queue and the start of the accepted pass (UTC, 2026). Host: as `run.env` names it, where *MBP* is `Andrews-MBP/Darwin-arm64` and *mbp-1* is `andrews-macbook-pro-1/Darwin-arm64`. Kept passes have no `run.env`. Each queue's tools hash is in item 7. Withdrawn copies are listed by directory, with the queue for those withdrawn during the reruns. † marks a copy in which the tool never reached its server. Counted tries are under item 2's recount.
+
+    | Pass | Accepted run | Host | Pre-turn retries | Non-provider fallbacks | Withdrawn copies, unscored | Counted tries |
+    |---|---|---|---|---|---|---|
+    | p1/u50-real-c1-L2 | kept, 11-01 (entry 1) | laptop | 0 | 0 | none | 1 |
+    | p1/u50-hidden-c1-L2 | reruns-a, 11-05 05:54 | MBP | 0 | 0 | appledouble; concurrency | 1 |
+    | p1/u250-hidden-c1-L2 | kept, 11-01 (`f85b205`) | laptop | 0 | 1 | appledouble | 1 |
+    | p1/u250-real-c1-L3 | reruns-a, 11-05 08:38 | MBP | 0 | 0 | appledouble; unpushed-commit | 1 |
+    | p1/u250-real-l5-n10 | reruns-a, 11-05 06:39 | MBP | 0 | 0 | appledouble; unpushed-commit | 1 |
+    | p1/u1000-hidden-c1-L4 | kept, 11-01 (`f85b205`) | laptop | 0 | 2 | appledouble | 1 |
+    | p1/u1000-hidden-l5-n50 | reruns-a, 11-05 04:59 | MBP | 0 | 0 | appledouble; concurrency† | 1 |
+    | p1/u1000-real-c1-L3 | kept, 11-01 (`f85b205`) | laptop | 0 | 2 | appledouble | 1 |
+    | p1/u1000-real-l5-n50 | kept, 11-01 (`f85b205`) | laptop | 0 | 0 | appledouble | 1 |
+    | p1/u5000-hidden-c2-bm25f-L4 | reruns-a, 11-05 01:50 | MBP | 0 | 0 | invalid-key† | 1 |
+    | p1/u5000-hidden-l5-n50 | reruns-g, 11-07 23:30 | mbp-1 | 0 | 1 | appledouble; concurrency†; tool† (reruns-a) | 1 |
+    | p1/u5000-real-c2-hybrid-L4 | list 12b, 11-07 12:42 | mbp-1 | 1 | 1 | appledouble (4 cases); unpushed-commit†; tool† (reruns-a) | 1 |
+    | p1/u5000-real-l5-n20 | kept, 11-01 (`f85b205`) | laptop | 0 | 1 | appledouble | 1 |
+    | p1/u10000-hidden-l5-n20 | reruns-a, 11-05 07:02 | MBP | 0 | 1 | appledouble; invalid-key | 1 |
+    | p1/u10000-real-l5-n20 | kept, 11-01 (`f85b205`) | laptop | 0 | 0 | appledouble | 1 |
+    | p1/u10000-hidden-c2-bm25f-L4 | reruns-g, 11-08 01:21 | mbp-1 | 0 | 0 | invalid-key†; deadline† (reruns-b); timeouts† (reruns-c); timeouts-g (reruns-f, cell 3) | 2 |
+    | p1/u10000-real-c2-bm25f-L4 | reruns-f, 11-07 02:31 | mbp-1 | 1 | 0 | appledouble (2 cases); invalid-key†; provider† (reruns-c) | 1 |
+    | p2/u50-real-c1-L2 | kept, 11-01 (entry 1) | laptop | 0 | 0 | none | 1 |
+    | p2/u50-hidden-c1-L2 | reruns-a, 11-05 06:17 | MBP | 0 | 0 | invalid-key | 1 |
+    | p2/u250-hidden-c1-L2 | reruns-a, 11-05 09:48 | MBP | 0 | 0 | invalid-key | 1 |
+    | p2/u250-real-c1-L3 | kept, 11-01 (`f85b205`) | laptop | 0 | 0 | appledouble | 1 |
+    | p2/u250-real-l5-n10 | kept, 11-01 (`f85b205`) | laptop | 0 | 0 | appledouble | 1 |
+    | p2/u1000-hidden-c1-L4 | reruns-a, 11-05 09:09 | MBP | 0 | 4 | invalid-key | 1 |
+    | p2/u1000-hidden-l5-n50 | reruns-a, 11-05 05:26 | MBP | 0 | 2 | invalid-key | 1 |
+    | p2/u1000-real-c1-L3 | kept, 11-01 (`f85b205`) | laptop | 0 | 1 | appledouble | 1 |
+    | p2/u1000-real-l5-n50 | kept, 11-01 (`f85b205`) | laptop | 0 | 0 | appledouble (5 cases) | 1 |
+    | p2/u5000-hidden-c2-bm25f-L4 | reruns-a, 11-05 03:20 | MBP | 0 | 0 | invalid-key | 1 |
+    | p2/u5000-hidden-l5-n50 | reruns-g, 11-08 00:07 | mbp-1 | 0 | 0 | invalid-key; tool† (reruns-a) | 1 |
+    | p2/u5000-real-c2-hybrid-L4 | list 12b, 11-07 14:09 | mbp-1 | 0 | 1 | invalid-key†; tool† (reruns-a) | 1 |
+    | p2/u5000-real-l5-n20 | reruns-g, 11-08 00:46 | mbp-1 | 0 | 0 | appledouble (4 cases); concurrency†; tool† (reruns-a) | 1 |
+    | p2/u10000-hidden-l5-n20 | reruns-a, 11-05 07:34 | MBP | 0 | 0 | invalid-key | 1 |
+    | p2/u10000-real-l5-n20 | reruns-a, 11-05 08:07 | MBP | 1 | 0 | concurrency† | 1 |
+    | p2/u10000-hidden-c2-bm25f-L4 | reruns-g, 11-08 03:41 | mbp-1 | 1 (3 attempts, item 9) | 1 | invalid-key; tool† (reruns-c); timeouts-g (list 12a) | 2 |
+    | p2/u10000-real-c2-bm25f-L4 | list 10, 11-07 07:39 | mbp-1 | 0 | 1 | invalid-key; timeouts† (reruns-e); timeouts-f (reruns-f) | 2 |
