@@ -38,11 +38,14 @@ agent store (`bc-c364fa0b-55a8-56e7-96c4-2b320bedf063`), not here; a path writte
   API key, a start from an unpushed commit, or a concurrency check fixed before any score was
   read (§7.7).
 - The 22 were rerun whole from `c4b458f` on the laptop's runner, from 2026-11-04 to 2026-11-08.
-  All 34 test passes are now accepted, at $862.41 of test spend. On the way, 6 passes were
-  withdrawn because the agent's MCP tool never reached its server, and the cap rose to $925
-  for the last queue. §7.7's addendum records these and every other deviation in the reruns.
-  No test pass has been scored, and no test result has been reported.
-- Next: entry 6's four exploratory L5 N = 50 test passes run by hand on 2026-11-08 after the
-  dev lists end, at a $935 cap (the addendum's item 14). The test passes are scored only after
-  the addendum is committed. `repo-discovery run`, `evaluate` and `scripts/test_report.py`
+  Test spend was $862.41 when they ended. On the way, 6 passes were withdrawn because the
+  agent's MCP tool never reached its server, and the cap rose to $925 for the last queue.
+  §7.7's addendum records these and every other deviation in the reruns.
+- 32 of the 34 test passes are accepted. On 2026-11-08, before any score was read, both
+  `u50-real-c1-L2` passes kept from 11-01 were withdrawn, to be rerun whole from `c4b458f`.
+  The run recorded no commit for either, and pass 2 ran on an unpushed commit (the addendum's
+  item 13). No test pass has been scored, and no test result has been reported.
+- Next: entry 6's four exploratory L5 N = 50 test passes run by hand at a $935 cap (item 14),
+  and the two `u50-real-c1-L2` reruns at a $950 cap (item 13). The test passes are scored only
+  after the addendum is committed. `repo-discovery run`, `evaluate` and `scripts/test_report.py`
   need `--registered` for test cases.
