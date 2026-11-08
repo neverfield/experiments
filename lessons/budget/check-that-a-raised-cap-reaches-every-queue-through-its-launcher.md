@@ -7,7 +7,7 @@
 - **Who launched the lists.** Gated lists were launched by a long-running weekend launcher. It had started before the cap was raised, so each list it launched ran under whatever cap its environment held at that start.
 - **No record of the cap.** The queue's spend line didn't print the cap. Nobody read the launcher's environment, because it also held the API key.
 
-**What it cost.** When $925 was approved, the raise couldn't reach the gated lists. The three reruns waiting in the gate were moved out, and all five remaining reruns were launched by hand. The cap in force for the three gated lists that had already run isn't on record. Every one of their cells started with spend plus the $20 margin below $789, so an $800 cap would have let them through.
+**What it cost.** When $925 was approved, the raise couldn't reach the gated lists. The three reruns waiting in the gate were moved out, and all five remaining reruns were launched by hand. No log records the cap in force for the three gated lists that had already run. The evidence says `CAP` was unset, so they ran under the $800 default. That cost nothing only because every one of their cells started with spend plus the $20 margin below $789.
 
 **Next time.**
 - Have the queue print the cap it enforces in every spend line and in `run.env`.

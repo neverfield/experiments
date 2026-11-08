@@ -42,5 +42,7 @@ agent store (`bc-c364fa0b-55a8-56e7-96c4-2b320bedf063`), not here; a path writte
   withdrawn because the agent's MCP tool never reached its server, and the cap rose to $925
   for the last queue. §7.7's addendum records these and every other deviation in the reruns.
   No test pass has been scored, and no test result has been reported.
-- Next: the test passes are scored, only after that addendum is committed. `repo-discovery
-  run`, `evaluate` and `scripts/test_report.py` need `--registered` for test cases.
+- Next: entry 6's four exploratory L5 N = 50 test passes run by hand on 2026-11-08 after the
+  dev lists end, at a $935 cap (the addendum's item 14). The test passes are scored only after
+  the addendum is committed. `repo-discovery run`, `evaluate` and `scripts/test_report.py`
+  need `--registered` for test cases.
