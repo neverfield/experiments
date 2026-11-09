@@ -1,6 +1,6 @@
 # Held-out test analysis
 
-The scoring and analysis code for the held-out test run, frozen before any test score is read. It implements §4 of [PREREGISTRATION.md](PREREGISTRATION.md) with entries 6 and 7 and the addendum to entry 7 (items 1–18). The addendum's items 15–18 were recorded on 2026-11-09, on branch `cursor/prereg-7-7-addendum-02fb` at `831d415`. Where those leave a choice open, the code makes one, and [Open choices](#open-choices) lists each with a recommendation.
+The scoring and analysis code for the held-out test run, frozen before any test score is read. It implements §4 of [PREREGISTRATION.md](PREREGISTRATION.md) with entries 6 and 7 and the addendum to entry 7 (items 1–18). The addendum's items 15–18 were recorded on 2026-11-09, on branch `cursor/prereg-7-7-addendum-02fb` at `831d415`. Where those leave a choice open, the code makes one, and [Open choices](#open-choices) lists each with its decision or a recommendation.
 
 | File | What it holds |
 |---|---|
@@ -47,7 +47,7 @@ The dry run takes every registered run list. Item 12 names the lists, and items 
 
 It then lists registered passes that appear in no list. It also lists the S1 directories under `runs/withdrawn-concurrency/` and checks only that they exist. `run.env` is read line by line; only `started`, `finished`, `complete`, `host`, `cursor_agent`, `tools` and keys naming a commit are kept, so tokens in it are never stored or printed.
 
-Scoring checks `--registered` first, then refuses to run if the analysis code differs from its commit, unless you pass `--allow-dirty`. The report's header names the commit and says whether the tree was clean. `--allow-pending` scores without pending passes, and `--s1` adds sensitivity analysis S1.
+Scoring checks `--registered` first, then refuses to run if the analysis code differs from its commit, unless you pass `--allow-dirty`, or if `INPUTS.json` gives no `costs` or `merge_dates`. The report's header names the commit and says whether the tree was clean. `--allow-pending` scores without pending passes, and isn't for the reported run (item 3). `--s1` adds sensitivity analysis S1.
 
 ## Inputs
 
@@ -63,9 +63,9 @@ Scoring checks `--registered` first, then refuses to run if the analysis code di
 | `universes` | for item 17 | `{"real": ".../u{size}/L4", "hidden": ...}`: per name condition, the universe root for each size. It holds one `universe.jsonl` or one per case |
 | `trace_dir` | no | Where each pass's traces are, with `{pass}` for the pass directory. The default is `{pass}` |
 | `accept` | for item 13 | `{"p1/u50-real-c1-L2": "item 13 audit, <commit>", ...}`: pending passes accepted after their audit. Only pending passes may be listed |
-| `merge_dates` | no | `model_cutoffs.py --out` output, one `{"case_id", "last_merge"}` per real-name case, for change memory |
-| `reviewed` | no | `{"real": cases.jsonl}`, `adjudicate.py apply` output, for the reviewed-label analysis |
-| `costs` | no | The dev selection's registry YAML (`selection_table.py --registry`); only its `fetch` and `index` tables are used, for the frontier |
+| `merge_dates` | for scoring | `model_cutoffs.py --out` output, one `{"case_id", "last_merge"}` per real-name case, for change memory |
+| `reviewed` | no | `{"real": cases.jsonl}`, `adjudicate.py apply` output, for the reviewed-label analysis. No adjudication of the test cases is recorded, so leave it out (item 7) |
+| `costs` | for scoring | The dev selection's registry YAML (`selection_table.py --registry`); only its `fetch` and `index` tables are used, for the frontier |
 | `run_env_commit_key` | no | A `run.env` key that names the commit, if no key contains "commit" |
 
 ```json
@@ -78,7 +78,6 @@ Scoring checks `--registered` first, then refuses to run if the analysis code di
   "universes": {"real": "/data/universes/u{size}/L4", "hidden": "/data/anon/u{size}/L4"},
   "accept": {"p1/u50-real-c1-L2": "item 13 audit", "p2/u50-real-c1-L2": "item 13 audit"},
   "merge_dates": "merge-dates.jsonl",
-  "reviewed": {"real": "cases/reviewed.jsonl"},
   "costs": "selection/cells.yaml"
 }
 ```
@@ -121,6 +120,7 @@ Every check below runs before any prediction is read, except the last two, which
 
 - `--registered` is missing, isn't a commit, or isn't an ancestor of HEAD.
 - The analysis code has uncommitted changes (unless `--allow-dirty`).
+- `INPUTS.json` gives no `costs` or no `merge_dates`.
 - The case files don't give 59 test cases in 30 ecosystems, or the hidden-name cases don't map one to one onto them.
 - A registered pass is pending and not accepted (unless `--allow-pending`), or `accept` names a pass that isn't pending.
 - `runs_root`, or a pass directory, resolves into a `withdrawn-*` directory.
@@ -145,38 +145,38 @@ Everything goes in `--out DIR`:
 - `per_case.csv` (pooled values and costs) and `per_pass.csv`;
 - `first_search.csv` (with each case's visibility), `misses.csv` and `audits.csv`;
 - `comparisons.csv`: every comparison, for the `all`, `none` and `s1` groups;
-- `frontier/`, when `costs` is given;
+- `frontier/`;
 - `results.json`: all of the above with the registration, the code commit, `CHOICES`, notes and skipped comparisons.
 
 Standard output gets the confirmatory table.
 
 ## Open choices
 
-Each item says what the code does and recommends an answer.
+Each item says what the code does. Items 1 to 7 were put to the study's coordinator before freezing, and each one's decision (2026-11-09) is given; items 8 to 28 give a recommendation.
 
-### To settle before freezing
+### Settled before freezing
 
-1. **Pooling the two passes for H1–H3 (item 15).** The code uses each case's mean over both passes, for H1–H3 and every other per-cell result. This rule came in with `f85b205`, after the registration commit `76882fe`, and item 15 records it as a deviation. Each pass is still reported under agent stability. *Recommend:* keep this as the primary analysis.
+1. **Pooling the two passes for H1–H3 (item 15).** The code uses each case's mean over both passes, for H1–H3 and every other per-cell result. This rule came in with `f85b205`, after the registration commit `76882fe`, and item 15 records it as a deviation. Each pass is still reported under agent stability. *Decided:* keep it as the primary analysis.
 2. **S1 (item 18).** It's off by default, and minimal when on:
    - the five withdrawn passes replace their reruns;
    - timeout and errored cases are scored as written, and a case with no prediction line counts as an empty ranking (CR@10 0, LastRequiredRank 101);
    - their audits are reported, not enforced;
    - every trace must exist.
 
-   *Recommend:* drop it unless the addendum adds it before unblinding. If it's added, run it once, from the same commit, with `--s1`.
-3. **The pending `u50-real-c1-L2` reruns (item 13).** Scoring stops until both are in `accept`. They must still pass item 4's bound. *Recommend:* add both to `accept`, citing item 13's audit, once it's recorded. Don't use `--allow-pending` for the reported run: it would leave the U50 real-name primary pick unscored. H1–H3, at U5000, don't depend on it.
+   *Decided:* it stays off by default, unchanged, until the addendum says whether it's dropped. If it's added, run it once, from the same commit, with `--s1`.
+3. **The pending `u50-real-c1-L2` reruns (item 13).** Scoring stops until both are in `accept`. They must still pass item 4's bound. *Decided:* once item 13's audit is recorded, list both under `accept`, citing it. Never use `--allow-pending` for the reported run: it would leave the U50 real-name primary pick unscored.
 4. **The first search's tool names (item 17).** The code counts:
    - `grepToolCall`, `ripgrepToolCall` and `globToolCall` events;
    - `mcpToolCall` events whose `toolName` is `search_repos`, or whose `name` ends in it.
 
-   The agents have no shell, so shell `rg` isn't a case. I couldn't check the CLI's names for its grep and glob tools against a dev `events.jsonl`: there's none in the repo, or in the store outside the blinded test area. If the CLI used other names, every run would count as "no such call". *Recommend:* before freezing, check one dev `events.jsonl` and add any other name to `SEARCH_KINDS`.
-5. **Where the traces are.** The run lines put `--trace-dir` inside each pass directory. `trace_dir` defaults to the pass directory itself. *Recommend:* run the dry run first. Its Files column counts traces where each line says they are. Set `trace_dir` (for example `{pass}/traces`) if that isn't the pass directory.
+   The agents have no shell, so shell `rg` isn't a case. No dev `events.jsonl` is in the repo, or in the store outside the blinded test area, so these names weren't checked against real dev output. If the CLI used other names, every run would count as "no such call". *Decided:* check the parser against the dev event key names that a worker with dev traces records, and nothing else; fix it and rerun the tests if they differ.
+5. **Where the traces are.** The run lines put `--trace-dir` inside each pass directory. `trace_dir` defaults to the pass directory itself. The dry run's Files column counts traces where each line says they are. *Decided:* set `trace_dir` from a dry run on the real run lists.
 6. **What `run.env` names.**
    - The code checks every `run.env` key containing "commit" (or `run_env_commit_key`) against item 12's commit, and stops on a mismatch or on a rerun pass without a `run.env`.
-   - If a `run.env` names no commit, the pass is labelled "run.env names no commit" and scored. Items 12 and 16 are then the record of its commit.
+   - If a `run.env` names no commit, the pass is labelled "run.env names no commit" and scored. The passes table lists every such pass in a note. Items 12 and 16 are then the record of its commit.
 
-   *Recommend:* check the dry run's commit column, and accept unverified stamps, since the registry already fixes each pass's commit.
-7. **Optional inputs.** Without `reviewed`, the reviewed-label analysis says "not computed". Without `costs`, there's no frontier, and the cost table shows only $, tokens, latency and fetches. Without `merge_dates`, there's no change memory. *Recommend:* supply all three: the dev selection's `cells.yaml`, `model_cutoffs.py --out` for the test cases, and the adjudicated test cases if they exist.
+   *Decided:* accept stamps that can't be checked, and note them.
+7. **Optional inputs.** Without `costs` there's no frontier, and the cost table shows only $, tokens, latency and fetches. Without `merge_dates` there's no change memory. Without `reviewed`, the reviewed-label analysis isn't computed. §2 reports reviewed labels only if two-reviewer adjudication of the test cases finishes; RECORD.md records none, and the paper draft lists it as open. *Decided:* supply `costs` (the dev selection's `cells.yaml`) and `merge_dates` (`model_cutoffs.py --out` for the test cases), which scoring now requires. Leave out `reviewed`; the report then says why that table is skipped.
 
 ### Answered in the code
 

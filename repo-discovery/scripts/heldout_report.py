@@ -758,8 +758,15 @@ def passes_table(report: Report) -> str:
         rows,
         right=(5, 6, 7, 8, 9),
     )
-    if report.notes:
-        out += "\n" + "\n".join(f"- {n}" for n in report.notes) + "\n"
+    unverified = [a.key for a in report.audits if a.commit.endswith("(run.env names no commit)")]
+    notes = list(report.notes)
+    if unverified:
+        notes.append(
+            "Passes whose run.env names no commit, so their commit isn't checked; they are "
+            f"scored on the commit the addendum gives them: {', '.join(unverified)}"
+        )
+    if notes:
+        out += "\n" + "\n".join(f"- {n}" for n in notes) + "\n"
     return out
 
 
@@ -955,7 +962,11 @@ def memory_table(report: Report) -> str:
 def reviewed_table(report: Report) -> str:
     rows = reviewed_rows(report)
     if not rows:
-        return "No reviewed labels in the inputs; not computed.\n"
+        return (
+            "Not computed: no adjudicated test labels in the inputs. §2 reports reviewed "
+            "labels only if two-reviewer adjudication of the test cases finishes, and none "
+            "is recorded.\n"
+        )
     out = table(
         ["Cell", "CR@10, WideSWE labels", "CR@10, reviewed labels", "Reviewed - WideSWE"],
         [

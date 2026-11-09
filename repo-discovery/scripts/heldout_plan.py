@@ -369,7 +369,9 @@ def provider_error_allowance(cell: str) -> int:
 
 # Open choices, with the value this code uses. TEST_ANALYSIS.md explains each.
 CHOICES = {
-    "pooling": "per case, the mean over both passes (and over the 5 bm25f-deps-random draws)",
+    "pooling": "per case, the mean over both passes (and over the 5 bm25f-deps-random draws); "
+    "a deviation (addendum item 15), kept as the primary analysis",
+    "s1": "off unless --s1",
     "bootstrap": f"{N_BOOT} resamples of the 30 test ecosystems, seed {SEED}, numpy's "
     "default linear quantile; every cell and comparison reuses the same draws",
     "subgroups": "a subgroup's interval resamples its own ecosystems (same count and seed); "
@@ -381,6 +383,11 @@ CHOICES = {
     "mechanisms": "at U5000, under both name conditions, on CR@10",
     "secondary-adjustment": "none; only the 6 confirmatory tests are Holm-adjusted",
     "missing": "a missing prediction stops scoring; no imputation",
-    "pending": "scoring stops while a registered pass is pending, unless --allow-pending",
+    "pending": "scoring stops while a registered pass is pending; the reported run lists the "
+    "audited u50-real-c1-L2 reruns under accept and doesn't use --allow-pending",
+    "run-env-commit": "a run.env naming no commit is scored and noted; one naming another "
+    "commit, or a rerun pass without a run.env, stops scoring",
+    "required-inputs": "the reported run needs costs and merge_dates",
+    "reviewed-labels": "computed only from adjudicated test labels; none are recorded",
     "rounding": f"{DIGITS} decimals in JSON and CSV, 3 in markdown",
 }

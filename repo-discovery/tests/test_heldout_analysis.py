@@ -676,6 +676,22 @@ def test_an_exploratory_pass_out_of_bounds_is_dropped(study: Study) -> None:
         path.write_text(saved)
 
 
+def test_run_env_naming_no_commit_is_scored_and_noted(study: Study) -> None:
+    key = "p1/u5000-hidden-l5-n50"
+    env = study.pass_dir(key) / plan.RUN_ENV
+    saved = env.read_text()
+    try:
+        env.write_text(saved.replace(f"commit={plan.RERUN_COMMIT}\n", ""))
+        passes = hreport.passes_table(
+            hreport.build(score.Inputs.load(study.inputs), plan.REGISTRATION)
+        )
+        assert f"{plan.RERUN_COMMIT} (run.env names no commit)" in passes
+        assert "Passes whose run.env names no commit" in passes
+        assert passes.rstrip().endswith(key)
+    finally:
+        env.write_text(saved)
+
+
 def test_run_env_keeps_only_whitelisted_keys(study: Study) -> None:
     env = runs.read_run_env(study.pass_dir("p1/u5000-hidden-l5-n50") / plan.RUN_ENV)
     assert "API_TOKEN" not in env and env["commit"] == plan.RERUN_COMMIT
@@ -949,6 +965,31 @@ def test_cli_checks_the_registration_then_refuses_dirty_code(
         report.main([str(study.inputs), "--registered", "abc1234", "--out", str(tmp_path / "r")])
     assert registered == [None, "abc1234"]
     assert not (tmp_path / "r").exists()
+
+
+def test_cli_needs_costs_and_merge_dates(
+    study: Study, tmp_path: Path, no_predictions: None
+) -> None:
+    try:
+        for dropped in ({"costs": None}, {"merge_dates": None}):
+            study.write_inputs(**dropped)
+            with pytest.raises(SystemExit, match=f"needs {next(iter(dropped))}"):
+                report.main(
+                    [str(study.inputs), "--registered", "abc1234", "--out", str(tmp_path / "r")]
+                )
+    finally:
+        study.write_inputs()
+    assert not (tmp_path / "r").exists()
+
+
+def test_reviewed_labels_absent_says_why(study: Study) -> None:
+    result = hreport.build(score.Inputs.load(study.write_inputs(reviewed=None)), plan.REGISTRATION)
+    study.write_inputs()
+    assert hreport.reviewed_table(result).startswith("Not computed: no adjudicated test labels")
+    assert all(
+        f"{score.REVIEWED}{plan.PRIMARY}" not in v
+        for v in result.results["u5000-real-bm25f"].per_case.values()
+    )
 
 
 def test_cli_scores_the_synthetic_study(

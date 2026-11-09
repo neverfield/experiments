@@ -8,11 +8,12 @@ entry 7, frozen before any test score was read. See TEST_ANALYSIS.md.
 
 COMMIT is the registration commit, which the checkout must descend from; it's checked
 before anything is read. INPUTS.json says where the cases, passes, static runs,
-universes and optional inputs are (TEST_ANALYSIS.md). Each agent cell's per-case values
-are the mean over its passes (addendum item 15). The report, tables, figures, CSVs and
-JSON go to DIR, and the confirmatory table to stdout. Scoring stops, before any
-prediction is read, if a registered pass is pending (unless ``--allow-pending``), fails
-its trace bounds, or the code differs from its commit (unless ``--allow-dirty``).
+universes, costs and merge dates are (TEST_ANALYSIS.md). Each agent cell's per-case
+values are the mean over its passes (addendum item 15). The report, tables, figures, CSVs
+and JSON go to DIR, and the confirmatory table to stdout. Scoring stops, before any
+prediction is read, if INPUTS.json gives no costs or merge dates, a registered pass is
+pending (unless ``--allow-pending``) or fails its trace bounds, or the code differs from
+its commit (unless ``--allow-dirty``).
 
 ``--dry-run`` reads only the run lists, ``run.env`` stamps and file names, and reports
 which passes would be scored and which withdrawn passes S1 would read. It opens no
@@ -76,7 +77,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             "the analysis code differs from its commit "
             f"({', '.join(version['changed'][:5])}); commit it, or pass --allow-dirty"
         )
-    report = build(Inputs.load(args.inputs), registered, args.allow_pending, args.s1)
+    inputs = Inputs.load(args.inputs)
+    needs = {"costs": "for the frontier", "merge_dates": "for change memory"}
+    missing = [f"{k} ({why})" for k, why in needs.items() if getattr(inputs, k) is None]
+    if missing:
+        raise ScoringError(
+            f"{args.inputs}: the reported run needs {' and '.join(missing)}; see TEST_ANALYSIS.md"
+        )
+    report = build(inputs, registered, args.allow_pending, args.s1)
     write(report, args.out)
     print(f"## {len(report.results)} cells scored; report in {args.out / 'report.md'}\n")
     print(report.tables["confirmatory"], end="")
