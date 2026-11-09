@@ -83,7 +83,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--orgs", nargs="+", required=True)
     ap.add_argument("--mined", required=True)
-    ap.add_argument("--methods", nargs="+", default=METHODS)
+    ap.add_argument("--methods", nargs="*", default=METHODS,
+                    help="give none to sample only --combos")
     ap.add_argument("--combos", nargs="*", default=[], choices=sorted(COMBOS),
                     help="also sample analyze.py's distinct changes for these method combos")
     ap.add_argument("--prefix", default="R", help="block ID prefix, distinct per sheet batch")

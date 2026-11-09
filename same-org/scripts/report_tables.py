@@ -80,25 +80,35 @@ def main() -> None:
             rows.append([o, c, x["changes"], round(x["changes"] * per_year), x["t2"], x["t3"],
                          x["t4plus"], x["distinct_targets"], x["with_issue"], x["with_pre_work_issue"],
                          x.get("opened_within_2min"), x.get("sweep_like"), x.get("not_sweep_like"),
+                         x.get("same_title"),
                          f'{x.get("top_target_set_share")} ({" + ".join(t.split("/")[1] for t in top)})'])
     out.append("### Distinct changes, sizes and request issues\n\n" + table(
         ["Org", "Combo", "Changes", "Per year", "2 targets", "3", "4+", "Distinct targets",
          "With a linked issue", "With a pre-work issue", "PRs opened within 2 min",
-         "Sweep-like", "Not sweep-like", "Top target set share"], rows))
+         "Sweep-like", "Not sweep-like", "Same title", "Top target set share"], rows))
 
+    scores = json.loads(Path(a.scores).expanduser().read_text()) if a.scores else {}
+    checked = (scores.get("by_method_unflagged") or {}).get("change-explicit")
     rows = []
     for size in (50, 100, 250, 500, 1000, 2000, 3000):
         big = [o for o in orgs if an[o]["active_pool"] >= size]
         xs = [an[o]["changes"]["explicit"] for o in big]
-        rows.append([f"{size:,}", ", ".join(big) or "–",
-                     round(sum(x["not_sweep_like"] for x in xs) * per_year),
+        n = sum(x["not_sweep_like"] for x in xs) * per_year
+        rows.append([f"{size:,}", ", ".join(big) or "–", round(n),
                      round(sum(x.get("not_sweep_pre_work", 0) for x in xs) * per_year),
-                     round(sum(x.get("not_sweep_t4plus", 0) for x in xs) * per_year)])
+                     round(sum(x.get("not_sweep_t4plus", 0) for x in xs) * per_year)]
+                    + ([f'{round(n * checked["same_not_sweep"]):,} ('
+                        f'{round(n * checked["same_not_sweep_ci"][0]):,}–'
+                        f'{round(n * checked["same_not_sweep_ci"][1]):,})'] if checked else []))
     out.append("### Explicit-link changes that aren't sweep-like, a year, by pool size\n\nAn org's "
                "changes can be scored at any pool size up to its active pool, by subsampling its "
-               "other repos.\n\n" + table(
+               "other repos."
+               + (f" Expected to pass the hand-check: changes a year times the share of unflagged "
+                  f"`change-explicit` blocks rated `same` and not `sweep` "
+                  f"({checked['same_not_sweep']}, n = {checked['n']}), with its 95% interval."
+                  if checked else "") + "\n\n" + table(
         ["Pool size", "Orgs with a pool this large", "Changes a year", "With a pre-work issue",
-         "4+ targets"], rows))
+         "4+ targets"] + (["Expected to pass the hand-check"] if checked else []), rows))
 
     rows = []
     for o in orgs:
