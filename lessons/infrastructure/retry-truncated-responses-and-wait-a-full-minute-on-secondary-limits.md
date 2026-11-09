@@ -9,3 +9,5 @@
 **What it cost.** A restart of all 8 org mines. The cache kept finished pages, so only the 9 minutes of in-flight work and a slower first quarter-hour were lost.
 
 **Next time.** In an API client for long fetches, retry `http.client.HTTPException`, `ConnectionError` and timeouts with backoff, and treat a GraphQL 200 with errors and no data as transient. On a 403 or 429 with no `Retry-After` or reset header, wait 60 s. Count retries and waits in the spend file, and make every page a cache entry written atomically, so a restart costs only work in flight.
+
+**Seen again:** same-org feasibility, 2026-11-09. One k8s hub batch of 50 issues returned 502 on every retry, which is likely a few kubernetes issues with very long timelines, and the whole expansion died after 30 minutes at batch 51 of 94. Retrying the same batch can't help with a query that is too heavy. `expand_hubs.py` now splits a failing batch in half down to single items, records items that still fail, and fails the step only above 0.5% of items. The cache served the 53 finished batches on the rerun.

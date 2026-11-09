@@ -26,6 +26,8 @@ from same_org.gh import GitHub  # noqa: E402
 from same_org.orgs import in_owners, owners_of  # noqa: E402
 from same_org.refs import EXCLUDED_CTX, PORT_TITLE, extract_refs, is_bot  # noqa: E402
 
+ERROR: dict = {"error": True}
+
 PR_FIELDS = """number title createdAt mergedAt merged url
   author { login __typename } repository { nameWithOwner }
   headRefName baseRefName changedFiles"""
@@ -81,6 +83,8 @@ def main() -> None:
     ap.add_argument("--cache", default="~/so-cache")
     ap.add_argument("--batch", type=int, default=50)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--max-error-share", type=float, default=0.005,
+                    help="fail if more than this share of items still errors as single items")
     a = ap.parse_args()
 
     d = Path(a.mined).expanduser() / a.org
@@ -104,25 +108,36 @@ def main() -> None:
     gh = GitHub(a.cache)
     chunks = [targets[i : i + a.batch] for i in range(0, len(targets), a.batch)]
 
-    def run(chunk: list[str]):
+    def run(chunk: list[str]) -> dict[str, dict | None]:
+        """Nodes by key. A batch that fails after retries (a 502 from an item with a huge
+        timeline, say) is split in half and retried, down to single items marked `ERROR`."""
         items = []
         for t in chunk:
             rn, num = t.rsplit("#", 1)
             owner, name = rn.split("/", 1)
             items.append((owner, name, int(num)))
-        res = gh.graphql(batch_query(items), kind="hub_batch")
-        return chunk, res
+        try:
+            res = gh.graphql(batch_query(items), kind="hub_batch")
+        except RuntimeError:
+            res = {}
+        data = res.get("data") or {}
+        if not data:
+            if len(chunk) == 1:
+                return {chunk[0]: ERROR}
+            h = len(chunk) // 2
+            return {**run(chunk[:h]), **run(chunk[h:])}
+        return {t: (data.get(f"r{j}") or {}).get("issueOrPullRequest") for j, t in enumerate(chunk)}
 
     out_rows = []
     missing = errors = 0
     with ThreadPoolExecutor(a.workers) as ex:
-        for done, (chunk, res) in enumerate(ex.map(run, chunks)):
-            data = res.get("data") or {}
-            if not data and res.get("errors"):
-                errors += len(chunk)
-                continue
-            for j, t in enumerate(chunk):
-                node = (data.get(f"r{j}") or {}).get("issueOrPullRequest")
+        for done, got in enumerate(ex.map(run, chunks)):
+            for t, node in got.items():
+                if node is ERROR:
+                    errors += 1
+                    out_rows.append({"key": t, "missing": True, "error": True,
+                                     "refs_from_window": wanted[t]})
+                    continue
                 if node is None:
                     missing += 1
                     out_rows.append({"key": t, "missing": True, "refs_from_window": wanted[t]})
@@ -151,8 +166,9 @@ def main() -> None:
     }
     (d / "expand_spend.json").write_text(json.dumps(summary, indent=1))
     print(json.dumps(summary))
-    if errors:
-        sys.exit(f"{errors} items lost to batch errors; rerun to top up")
+    if errors > a.max_error_share * len(targets):
+        sys.exit(f"{errors} items lost to errors, over {a.max_error_share:.1%} of "
+                 f"{len(targets)}; rerun to top up")
 
 
 if __name__ == "__main__":
