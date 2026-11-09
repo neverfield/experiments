@@ -9,7 +9,12 @@ repository, so of the common aliases only flagships are replaced); both map case
 embed gold names), gold and context. Only snapshots in dev-case universes are written.
 
 The salt and the name mapping are kept under ``<out>/private/``; the copy holds
-third-party text, so none of ``<out>`` belongs in the repository.
+third-party text, so none of ``<out>`` belongs in the repository. A salt already at
+``<out>/private/salt`` is used as it is, so a build can share another build's IDs.
+
+``--collapse-owners`` maps every owner to one shared ID, in names and in text, requests
+included, so no owner name is left to group repositories by; repository IDs stay as
+without it (see :class:`repo_discovery.anonymize.Pseudonyms`).
 
     python3 scripts/anonymize_corpus.py --corpus ~/rd-corpus --tier u1000 \
         --cases ~/rd-cases.jsonl --out ~/rd-anon
@@ -225,6 +230,11 @@ def main(argv: list[str] | None = None) -> int:
         help="keep snapshots a stopped build finished (packet and sidecar written); scrub "
         "stats then cover only the snapshots this run writes",
     )
+    parser.add_argument(
+        "--collapse-owners",
+        action="store_true",
+        help="map every owner to one shared ID, so owners tell no repositories apart",
+    )
     add_split_arguments(parser)
     args = parser.parse_args(argv)
     global _resume
@@ -239,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
 
     vocabulary = {r["repo"] for rows in universes.values() for r in rows}
     vocabulary |= {g.repo for c in cases for g in (*c.gold, *c.context)}
-    pseudonyms = Pseudonyms.build(vocabulary, salt)
+    pseudonyms = Pseudonyms.build(vocabulary, salt, collapse_owners=args.collapse_owners)
     plain = Scrubber(pseudonyms)
 
     snapshots: dict[str, dict[str, str]] = defaultdict(dict)
@@ -338,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
         **totals,
         "names": len(vocabulary),
         "owners": len(pseudonyms.owners),
+        "owner_ids": len(set(pseudonyms.owners.values())),
+        "collapse_owners": args.collapse_owners,
         "documents_for_common": in_text.docs,
         "readme_share": args.readme_share,
         "text_share": args.text_share,

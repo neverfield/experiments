@@ -5,13 +5,20 @@ the lowercased name, so the mapping is stable for a salt and reveals nothing wit
 Repositories of one owner share its owner ID. A repository named after its owner
 (``getsentry/sentry``, ``sveltejs/svelte``) takes the owner ID as its name too, so a bare
 ``Sentry`` reads the same whether it meant the owner or the repository, as it does for
-:mod:`repo_discovery.aliases`.
+:mod:`repo_discovery.aliases`. With ``collapse_owners``, every owner shares one ID, so an
+owner tells no repositories apart, and each repository gets its own ``r<hex>`` name: a
+repository named after its owner would otherwise collide with the others and stand out
+as a flagship. Other repositories keep the ``r<hex>`` names they have without it, except
+where two would now collide under the shared owner and the later one is lengthened.
 
 :class:`Scrubber` rewrites mentions in text with the aliases of
 :mod:`repo_discovery.aliases` and the same tokenization: full and owner-qualified names
 become ``o<hex>/r<hex>``, bare names ``r<hex>`` and owner names or stems ``o<hex>``. Text
 belongs to a context repository, and an alias the context claims wins: inside
-``getsentry/sentry-cli``'s packet, ``sentry`` is its owner.
+``getsentry/sentry-cli``'s packet, ``sentry`` is its owner. A repository named after its
+owner also claims the owner's login (``getsentry`` for ``getsentry/sentry``); with
+collapsed owners it doesn't, so the login becomes the shared owner ID while the bare
+``Sentry`` still names the repository.
 
 Some aliases are everyday words elsewhere (``common``: ``github`` for the many
 ``.github`` repositories, ``release``, ``tsconfig``). They are replaced in the packet of
@@ -67,12 +74,19 @@ class Pseudonyms:
 
     repos: dict[str, str]
     owners: dict[str, str]
+    collapsed: bool = False
 
     @classmethod
-    def build(cls, repos: Iterable[str], salt: bytes, length: int = 8) -> Pseudonyms:
+    def build(
+        cls, repos: Iterable[str], salt: bytes, length: int = 8, collapse_owners: bool = False
+    ) -> Pseudonyms:
         keys = sorted({repo_key(r) for r in repos})
         owners: dict[str, str] = {}
+        shared = "o" + keyed_digest(salt, "shared-owner", "", length)
         for owner in sorted({k.partition("/")[0] for k in keys}):
+            if collapse_owners:
+                owners[owner] = shared
+                continue
             n = length
             while (alias := "o" + keyed_digest(salt, "owner", owner, n)) in owners.values():
                 n += 1
@@ -82,14 +96,14 @@ class Pseudonyms:
         for key in keys:
             owner, _, name = key.partition("/")
             stems = {_joined(s) for s in owner_stems(owner)}
-            name_id = owners[owner] if _joined(name) in stems else ""
+            name_id = owners[owner] if not collapse_owners and _joined(name) in stems else ""
             n = length
             while not name_id or f"{owners[owner]}/{name_id}" in used:
                 name_id = "r" + keyed_digest(salt, "repo", key, n)
                 n += 1
             mapped[key] = f"{owners[owner]}/{name_id}"
             used.add(mapped[key])
-        return cls(mapped, owners)
+        return cls(mapped, owners, collapse_owners)
 
     def repo(self, repo: str) -> str:
         return self.repos[repo_key(repo)]
@@ -143,8 +157,10 @@ class Scrubber:
         self.proper = frozenset(proper)
         self.claims: dict[str, list[_Claim]] = {}
         for key, anon in pseudonyms.repos.items():
-            owner = key.partition("/")[0]
+            owner, _, name = key.partition("/")
             for alias, kind in repo_aliases(key).items():
+                if pseudonyms.collapsed and alias == _joined(owner) != _joined(name):
+                    continue
                 text = anon if kind in (AliasKind.FULL, AliasKind.QUALIFIED) else anon.split("/")[1]
                 self.claims.setdefault(alias, []).append(_Claim(kind, owner, key, text))
         for owner, anon in pseudonyms.owners.items():

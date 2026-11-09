@@ -15,7 +15,9 @@ tool (c2) adds ``--search bm25f`` or ``--search hybrid-rrf``. The two combine, a
 ``--search-index DIR`` serves each case's search from an index ``v5_search_index.py``
 built ahead of time, so no agent waits on an index build. Each agent runs isolated from
 the other cases (see :mod:`repo_discovery.rankers.sandbox`), and the script stops where
-that isn't possible unless given ``--isolation auto`` or ``off``.
+that isn't possible unless given ``--isolation auto`` or ``off``. ``--max-turns N`` moves
+the cap on rounds of tool calls from 20, and ``--prompt neutral`` asks for only the
+repositories that need edits (see :mod:`repo_discovery.rankers.cursor_agent`).
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from repo_discovery.fetch_levels import FULL
 from repo_discovery.rankers.cursor_agent import (
     ANONYMIZED,
     ISOLATION,
+    PROMPTS,
     WORKSPACE,
     CursorAgentRanker,
     warm_home,
@@ -84,6 +87,16 @@ def main() -> int:
         default="required",
         help="run each agent where it can't see other cases: required (default), auto, off",
     )
+    parser.add_argument(
+        "--max-turns", type=int, default=20, help="rounds of tool calls before the follow-up"
+    )
+    parser.add_argument(
+        "--prompt",
+        choices=sorted(PROMPTS),
+        default="default",
+        help="neutral: ask for only the repositories that need edits, without the "
+        "more-than-one-repository hint",
+    )
     add_split_arguments(parser)
     args = parser.parse_args()
 
@@ -116,6 +129,8 @@ def main() -> int:
         open_level=args.open_level,
         search_index=args.search_index,
         isolation=args.isolation,
+        max_turns=args.max_turns,
+        prompt=args.prompt,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     lock = threading.Lock()
