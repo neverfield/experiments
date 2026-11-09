@@ -43,6 +43,11 @@ STOP = set(
     "please thanks thank hi hello see e g eg ie etc".split()
 )
 ISSUE_METHODS = ("issue-close", "issue-strong", "issue-ref")
+COMBOS = {
+    "strict": ("issue-strong", "pr-link-dep", "branch"),
+    "links": ("issue-strong", "pr-link", "branch"),
+    "all": ("issue-close", "issue-strong", "issue-ref", "pr-link", "pr-link-dep", "key", "branch"),
+}
 
 
 def tokens(s: str) -> list[str]:
@@ -92,6 +97,55 @@ def first_token(repo: str) -> str:
     return parts[0] if parts else name
 
 
+def ts(s: str | None) -> datetime | None:
+    return datetime.fromisoformat(s.replace("Z", "+00:00")) if s else None
+
+
+def changes(cases: list[dict], methods: tuple[str, ...], max_targets: int) -> list[dict]:
+    """Distinct multi-repo changes: the methods' multi-repo cases joined wherever they share a
+    PR. Each change lists the non-bot issue-strong hubs linked to any of its PRs (a single-repo
+    issue case can still be the request for a multi-repo change)."""
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    first: dict[str, datetime] = {}
+    for c in cases:
+        if c["method"] in methods and 2 <= c["n_targets"] <= max_targets:
+            for p in c["prs"][1:]:
+                parent[find(p)] = find(c["prs"][0])
+            find(c["prs"][0])
+    for c in cases:
+        if c["method"] in methods and 2 <= c["n_targets"] <= max_targets and c.get("first_created"):
+            r = find(c["prs"][0])
+            t = ts(c["first_created"])
+            first[r] = min(first.get(r, t), t)
+    comps: dict[str, set[str]] = {}
+    for p in list(parent):
+        comps.setdefault(find(p), set()).add(p)
+    reqs: dict[str, list[dict]] = {}
+    for c in cases:
+        if c["method"] == "issue-strong" and c.get("hub") and not c["hub"]["author_is_bot"]:
+            for r in {find(p) for p in c["prs"] if p in parent}:
+                reqs.setdefault(r, []).append(c)
+    out = []
+    for r, ps in comps.items():
+        targets = sorted({p.split("#")[0] for p in ps})
+        if not 2 <= len(targets) <= max_targets:
+            continue
+        pre = [c for c in reqs.get(r, []) if c["hub"]["createdAt"] and r in first
+               and ts(c["hub"]["createdAt"]) < first[r]]
+        pre.sort(key=lambda c: c["hub"]["createdAt"])
+        out.append({"targets": targets, "prs": sorted(ps), "has_issue": bool(reqs.get(r)),
+                    "pre_work_issue": pre[0]["group"] if pre else None})
+    return out
+
+
 def load(p: Path) -> list[dict]:
     with gzip.open(p, "rt") as f:
         return [json.loads(line) for line in f]
@@ -136,6 +190,36 @@ def main() -> None:
         docs_n = {k: tokens(k.split("/", 1)[1]) for k in pool}
         docs_d = {k: tokens(k.split("/", 1)[1] + " " + (pool[k].get("description") or ""))
                   for k in pool}
+
+        def score_requests(items: list[tuple[str, list[str]]]) -> dict:
+            """Request = the hub issue's title and body. Visibility of target names in it, and
+            the names-only BM25 ranker's CompleteRecall over the org's pool."""
+            vis = Counter()
+            ranks = {"names": [], "names+desc": []}
+            for hub_key, targets in items:
+                h = hubs[hub_key]
+                text = f"{h.get('title') or ''}\n{clean(h.get('body') or '')}"
+                hit = [names_in(text, t) for t in targets]
+                vis["all" if all(hit) else "some" if any(hit) else "none"] += 1
+                for label, docs in (("names", docs_n), ("names+desc", docs_d)):
+                    dd = dict(docs)
+                    for t in targets:
+                        if t not in dd:
+                            r = all_repos.get(t, {})
+                            extra = (r.get("description") or "") if label == "names+desc" else ""
+                            dd[t] = tokens(t.split("/", 1)[1] + " " + extra)
+                    order = BM25(dd).rank(tokens(text), rng)
+                    pos = {k: i for i, k in enumerate(order)}
+                    ranks[label].append(max(pos[t] for t in targets) + 1)
+            out = {"pre_work_multi_requests": sum(vis.values()), "visibility": dict(vis)}
+            for label, rs in ranks.items():
+                if rs:
+                    n = len(rs)
+                    out[f"{label}_cr@10"] = round(sum(r <= 10 for r in rs) / n, 3)
+                    out[f"{label}_cr@50"] = round(sum(r <= 50 for r in rs) / n, 3)
+                    out[f"{label}_last_rank_median"] = sorted(rs)[n // 2]
+            return out
+
         for method in sorted({c["method"] for c in cases}):
             cs = [c for c in cases if c["method"] == method]
             multi = [c for c in cs if 2 <= c["n_targets"] <= a.max_targets
@@ -177,34 +261,25 @@ def main() -> None:
                     m[f"{label}_body_words_median"] = words[len(words) // 2]
                     m[f"{label}_body_under_20_words"] = round(
                         sum(1 for w in words if w < 20) / len(words), 3)
-                vis = Counter()
-                ranks = {"names": [], "names+desc": []}
-                for c in multi:
-                    if not c["hub"]["pre_work"]:
-                        continue
-                    h = hubs[c["group"]]
-                    text = f"{h.get('title') or ''}\n{clean(h.get('body') or '')}"
-                    hit = [names_in(text, t) for t in c["targets"]]
-                    vis["all" if all(hit) else "some" if any(hit) else "none"] += 1
-                    for label, docs in (("names", docs_n), ("names+desc", docs_d)):
-                        dd = dict(docs)
-                        for t in c["targets"]:
-                            if t not in dd:
-                                r = all_repos.get(t, {})
-                                extra = (r.get("description") or "") if label == "names+desc" else ""
-                                dd[t] = tokens(t.split("/", 1)[1] + " " + extra)
-                        order = BM25(dd).rank(tokens(text), rng)
-                        pos = {k: i for i, k in enumerate(order)}
-                        ranks[label].append(max(pos[t] for t in c["targets"]) + 1)
-                m["pre_work_multi_requests"] = sum(vis.values())
-                m["visibility"] = dict(vis)
-                for label, rs in ranks.items():
-                    if rs:
-                        n = len(rs)
-                        m[f"{label}_cr@10"] = round(sum(r <= 10 for r in rs) / n, 3)
-                        m[f"{label}_cr@50"] = round(sum(r <= 50 for r in rs) / n, 3)
-                        m[f"{label}_last_rank_median"] = sorted(rs)[n // 2]
+                m.update(score_requests(
+                    [(c["group"], c["targets"]) for c in multi if c["hub"]["pre_work"]]))
             org_out["methods"][method] = m
+        org_out["changes"] = {}
+        for name, methods in COMBOS.items():
+            ch = changes(cases, methods, a.max_targets)
+            n = len(ch)
+            sizes = Counter(min(len(c["targets"]), 4) for c in ch)
+            co = {
+                "methods": list(methods), "changes": n,
+                "t2": sizes[2], "t3": sizes[3], "t4plus": sizes[4],
+                "with_issue": round(sum(c["has_issue"] for c in ch) / n, 3) if n else None,
+                "with_pre_work_issue": round(sum(bool(c["pre_work_issue"]) for c in ch) / n, 3)
+                if n else None,
+                "distinct_targets": len({t for c in ch for t in c["targets"]}),
+            }
+            co.update(score_requests(
+                [(c["pre_work_issue"], c["targets"]) for c in ch if c["pre_work_issue"]]))
+            org_out["changes"][name] = co
         result[org] = org_out
     Path(a.out).expanduser().write_text(json.dumps(result, indent=1))
     print(json.dumps(result, indent=1))

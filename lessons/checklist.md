@@ -14,6 +14,7 @@ Read this before designing an experiment, and answer each line in a sentence or 
 - [ ] Write down the data the question implies (candidates and labels as the deployment would see them), and spend a small, fixed effort testing whether existing links can supply it before taking a convenient proxy. If you run only one check in this section, run this one. Say in the plan which part of the question a proxy can't answer. ([why](method/check-whether-data-shaped-like-the-question-can-be-built-before-taking-a-proxy.md))
 - [ ] Write a short decision analysis of the real use before choosing the metric: what is done with each predicted item, what a miss and a false positive cost, and how many targets real requests have, single targets included. Pick a metric that prices both errors, and check that the cases and the prompt match that mix. ([why](measurement/choose-the-metric-from-how-the-output-will-be-used.md))
 - [ ] Run shortcut probes on dev: a closed-book model given only the names, a ranker on one feature that isn't the request (doc bytes, size) with its AUC, an oracle for any easy first stage (such as the owner, then random and the baseline within it), and the share of requests that name a target. If one comes close to the expected winner, change the benchmark first. ([why](method/probe-a-benchmark-for-shortcuts-before-building-methods-on-it.md))
+- [ ] When labels come from links (issue references, cross-references, shared keys), store each link's raw evidence with the case, so the label rule can be chosen after a precision check without refetching. ([why](method/keep-the-context-of-each-link-so-label-rules-can-be-varied-without-refetching.md))
 - [ ] Pilot the main methods at the planned caps on about 10 cases, twice each, before laying out a large grid. Log which limit ends each run, work out the smallest difference the sample can detect, and cut the grid to the contrasts it can resolve. ([why](measurement/pilot-the-run-budget-and-the-samples-power-before-a-large-grid.md))
 
 ## Methods and controls
@@ -47,6 +48,8 @@ Read this before designing an experiment, and answer each line in a sentence or 
 - [ ] Stage model weights and data before the run, with checksums and a `DONE` marker. ([why](infrastructure/stage-downloads-before-the-run.md))
 - [ ] Build per-case sandboxes over a large corpus from hard links, not copies, and log setup time apart from run time. ([why](infrastructure/hard-link-corpus-files-into-per-case-workspaces.md))
 - [ ] Check required secrets at the start of each run, without printing them. ([why](infrastructure/check-required-secrets-at-the-start-of-each-run.md))
+- [ ] Probe every host the labels, request text and fetches need from the VM that will run the job, and write the blocked ones into the plan with what they rule out. ([why](infrastructure/probe-every-data-source-from-the-run-vm-before-designing-around-it.md))
+- [ ] In an API client for long fetches, retry truncated responses and connection errors, wait a full minute on a rate-limit response without `Retry-After`, and cache each page atomically. ([why](infrastructure/retry-truncated-responses-and-wait-a-full-minute-on-secondary-limits.md))
 - [ ] Key every cache on a hash of its input, not on IDs that repeat across builds, and give each replicate and each build its own key. ([why](infrastructure/key-caches-on-a-hash-of-what-they-store.md))
 - [ ] Run from a pushed commit, and put its SHA in the report. ([why](process/run-experiments-from-a-pushed-commit.md))
 - [ ] In a build chain, gate each step on its error count as well as its exit code, and top up partial failures before the next step runs. ([why](infrastructure/gate-each-build-step-on-its-error-count-not-its-exit-code.md))
@@ -64,6 +67,8 @@ Read this before designing an experiment, and answer each line in a sentence or 
 ## Budget
 
 - [ ] Smoke-test a few cases at the smallest real size, and project cost from that. ([why](budget/measure-cost-on-a-slice-of-the-real-data.md))
+- [ ] For API mining, measure responses per minute at 1, 2 and 4 workers on a slice, and project from whichever limit binds, not from the documented quota. ([why](budget/project-api-mining-from-the-limit-that-binds-not-the-documented-quota.md))
+- [ ] Before budgeting REST fetches of repo contents, time a shallow, blobless, sparse git clone on a few dozen real repos. ([why](budget/time-a-sparse-git-clone-before-budgeting-rest-fetches.md))
 - [ ] Set a stop per batch inside the total cap, and log tokens and dollars per case, failed attempts included. ([why](budget/set-per-batch-stops-and-log-spend-per-case.md))
 - [ ] Try the cheap version of a measurement first, and pay for rigor only if it changes the answer. ([why](budget/try-the-cheap-version-first-and-pay-for-rigor-only-if-it-changes-the-answer.md))
 

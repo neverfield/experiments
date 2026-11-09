@@ -243,6 +243,7 @@ def main() -> None:
             merged = sorted(t for t in (ts(prs[x].get("mergedAt")) for x in ks) if t)
             row["span_days"] = (merged[-1] - merged[0]).days if merged else None
             row["first_merged"] = merged[0].isoformat() if merged else None
+            row["first_created"] = first_pr.isoformat() if first_pr else None
             if gid in case_edges:
                 row["edges"] = case_edges[gid]
             if hub:
