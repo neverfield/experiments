@@ -278,6 +278,11 @@ Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendu
         - Earlier, between about 00:07 and 00:11 UTC and before the coordinator's 00:21 UTC instruction to keep out of `internal/test-run/`, the same worker had listed file names under `internal/test-run/mac-runs/` and got grep matches in notes there.
         - The scoring freeze's parser check (its item 4) reads a dev events file only.
         - That check's record, the store's `internal/scoring-freeze/dev-events-tool-keys.md`, states one fact from the test side, at line 47: the audit of item 13's pass 2 rerun counted one `editToolCall`, a CLI built-in tool. It comes from that audit's per-case tool-call counts, not from an incidental read's output, and the note is being marked as test-side. No code or test in this repository mentions `editToolCall`, and `TEST_ANALYSIS.md` names it only to say so. The first-search parser reads only grep, ripgrep and glob calls and `search_repos` calls under `mcpToolCall`.
+      - On 2026-11-09, while locating `dev-events-tool-keys.md`, the laptop runner, which already audits the test traces, ran two searches over the whole store. Both covered `internal/test-run/`.
+        - The searches were a file-name search for `dev-events-tool-keys.md` and a text search of `*.md` files for `incidental|editToolCall`.
+        - Neither returned a file under the copied test runs, `internal/test-run/mac-runs/runs/`. The only match inside `internal/test-run/` was line 3 of `mac-runs/README.md`.
+        - The runner also read the store's `internal/incidental-reads.md`, which lists the earlier reads' case IDs.
+        - No result of either search was used in any code or analysis.
       - Agents now leave `internal/test-run/` out of store searches. `-g '!**/test-run/**'` excluded it in every working directory and search path tested, symlinked paths included. `-g '!internal/test-run/**'` doesn't, as the 01:18 search shows.
 
 11. **Correction to §2.** §2 says "The dev salts are lost." That's untrue for the published dev salt. The study's agent store holds it, with the U10000 dev build made under it. Entry 6's hidden-name second dev pass would run on it, but that pass is held (item 14). The other dev salts weren't checked. The test passes used §2's new salt, which is unchanged.
