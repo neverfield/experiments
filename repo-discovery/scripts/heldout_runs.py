@@ -303,6 +303,20 @@ def flag_problems(spec: CellSpec, run: ListedRun) -> list[str]:
     return problems
 
 
+def listed_trace_dir(run: ListedRun) -> str | None:
+    """The line's ``--trace-dir`` as an INPUTS.json ``trace_dir`` template, if it's the pass
+    directory or inside it."""
+    listed = run.flags.get("trace-dir")
+    if run.out is None or not isinstance(listed, str):
+        return None
+    parent, path = run.out.parent, Path(listed)
+    if path == parent:
+        return "{pass}"
+    if parent in path.parents:
+        return "{pass}/" + path.relative_to(parent).as_posix()
+    return None
+
+
 # Dry run ------------------------------------------------------------------------------
 
 
@@ -381,16 +395,34 @@ def dry_run(
     accept: Mapping[str, object] = {},
     s1: bool = False,
     commit_key: str | None = None,
+    trace_template: str | None = None,
 ) -> tuple[str, dict]:
     """A markdown report of which passes each run list would have scored, and the same as
-    JSON. No prediction or trace is opened; S1's directories are only checked to exist."""
-    decisions = [
-        decide(run, accept, s1, commit_key) for path in lists for run in parse_run_list(path)
-    ]
+    JSON. No prediction or trace is opened; S1's directories are only checked to exist.
+    With ``trace_template`` (INPUTS.json's ``trace_dir``), a line whose traces are elsewhere
+    is a problem."""
+    listed = [run for path in lists for run in parse_run_list(path)]
+    read = [r for r in listed if r.area == TEST_AREA or (r.area == S1_AREA and r.key in S1_PASSES)]
+    for run in read:
+        found = listed_trace_dir(run)
+        if trace_template is not None and found is not None and found != trace_template:
+            run.problems.append(
+                f"--trace-dir puts traces at {found}; INPUTS.json's trace_dir is {trace_template}"
+            )
+    decisions = [decide(run, accept, s1, commit_key) for run in listed]
+    templates = sorted({t for t in map(listed_trace_dir, read) if t is not None})
+    if len(templates) == 1:
+        where = f"every line puts its traces at `{templates[0]}`, the `trace_dir` for INPUTS.json"
+    elif templates:
+        where = f"the lines disagree ({', '.join(f'`{t}`' for t in templates)})"
+    else:
+        where = "no line names a --trace-dir inside its pass directory"
     lines = [
         "# Dry run: which listed passes would be scored",
         "",
         f"Run lists: {', '.join(str(p) for p in lists)}. No prediction or trace was opened.",
+        "",
+        f"Traces: {where}.",
         "",
         "| Line | Pass | Area | Registry | Decision | Files | Problems |",
         "|---|---|---|---|---|---|---|",
@@ -437,10 +469,12 @@ def dry_run(
                 "registry": d.status,
                 "decision": d.decision,
                 "files": d.files,
+                "trace_dir": listed_trace_dir(d.run),
                 "problems": d.run.problems,
             }
             for d in decisions
         ],
+        "trace_dirs": templates,
         "unlisted": unlisted,
         "s1": {"enabled": s1, "passes": s1_rows},
     }

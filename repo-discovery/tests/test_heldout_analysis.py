@@ -473,6 +473,68 @@ def test_first_search_reads_the_first_grep_glob_or_search_repos_call(tmp_path: P
     assert score.first_search(tmp_path / "absent.jsonl", ["acme"]) == "none"
 
 
+def test_first_search_reads_the_dev_event_layout(tmp_path: Path) -> None:
+    def started(call: dict) -> dict:
+        return {
+            "type": "tool_call",
+            "subtype": "started",
+            "call_id": "c1",
+            "tool_call": call
+            | {"hookAdditionalContexts": [], "toolCallId": "toolu_01", "startedAtMs": "1"},
+            "model_call_id": "m1",
+            "session_id": "s1",
+            "timestamp_ms": 1,
+            "_run_s": 0.1,
+        }
+
+    def grep(pattern: str, output_mode: str = "content") -> dict:
+        args = {
+            "pattern": pattern,
+            "path": "/tmp/v5-x/workspace/acme",
+            "glob": "*.md",
+            "outputMode": output_mode,
+            "caseInsensitive": False,
+            "headLimit": 20,
+            "multiline": False,
+            "toolCallId": "toolu_01",
+            "offset": 0,
+        }
+        return {"grepToolCall": {"args": args}}
+
+    search = {
+        "mcpToolCall": {
+            "args": {
+                "name": "repo-discovery-search_repos",
+                "args": {"query": "acme ledger", "k": 20},
+                "toolCallId": "toolu_02",
+                "providerIdentifier": "repo-discovery",
+                "toolName": "search_repos",
+                "smartModeApprovalOnly": False,
+                "skipApproval": True,
+                "serverIdentifier": "repo-discovery",
+                "symbolicPathArguments": [],
+                "argumentsRepaired": False,
+            }
+        }
+    }
+    read = {"readToolCall": {"args": {"path": "acme/README.md", "offset": 0, "limit": 50}}}
+    glob = {"globToolCall": {"args": {"targetDirectory": "/u/acme", "globPattern": "**/*.toml"}}}
+
+    def first(owner: str, *calls: dict) -> str:
+        path = tmp_path / "events.jsonl"
+        init = {"type": "system", "subtype": "init", "session_id": "s1", "model": "m"}
+        path.write_text("".join(json.dumps(x) + "\n" for x in [init, *map(started, calls)]))
+        return score.first_search(path, [owner])
+
+    assert first("acme", read, grep("acme/")) == "named"
+    assert first("acme", read, grep("billing")) == "not-named"
+    assert first("acme", glob) == "not-named"
+    assert first("acme", search) == "named"
+    assert first("acme", read) == "none"
+    # Item 17's search string is every non-path string argument, outputMode included.
+    assert first("files", grep("billing", "files_with_matches")) == "named"
+
+
 def test_set_quality_and_top10_fill() -> None:
     universe = score.CaseUniverse(
         {
@@ -752,6 +814,7 @@ def test_dry_run_reads_run_lists_and_opens_no_prediction_or_trace(
         r for r in record["lines"] if r["problems"]
     ]
     assert "Would score 34 registered passes" in text
+    assert record["trace_dirs"] == ["{pass}"] and "puts its traces at `{pass}`" in text
     assert record["unlisted"] == []
     assert [Path(p["path"]) for p in record["s1"]["passes"]] == [
         study.pass_dir(k, plan.S1_AREA) for k in plan.S1_PASSES
@@ -781,6 +844,29 @@ def test_dry_run_flags_pending_and_wrong_lines(study: Study) -> None:
     assert decisions[3] == "withdrawn; never scored" and decisions[4].startswith("not a pass line")
     _, accepted = runs.dry_run([path], study.root / "runs", {PENDING[0]: "ok"}, False)
     assert accepted["lines"][0]["decision"] == "scored"
+
+
+def test_dry_run_gives_the_trace_dir_and_checks_the_inputs_against_it(study: Study) -> None:
+    path = study.root / "traces-sub.txt"
+    keys = ["p1/u5000-real-c2-hybrid-L4", "p2/u5000-real-c2-hybrid-L4"]
+    lines = [run_line(study.root / "runs", plan.TEST_AREA, k) for k in keys]
+    path.write_text(
+        "".join(
+            line.replace(f"--trace-dir {d}", f"--trace-dir {d}/traces") + "\n"
+            for line, d in zip(lines, (study.pass_dir(k) for k in keys), strict=True)
+        )
+    )
+    text, record = runs.dry_run([path], study.root / "runs", {}, False)
+    assert record["trace_dirs"] == ["{pass}/traces"]
+    assert "puts its traces at `{pass}/traces`" in text
+    assert [r["decision"] for r in record["lines"]] == ["scored", "scored"]
+    _, wrong = runs.dry_run([path], study.root / "runs", {}, False, None, "{pass}")
+    assert [r["decision"] for r in wrong["lines"]] == [
+        "line differs from its cell; check first"
+    ] * 2
+    assert "INPUTS.json's trace_dir is {pass}" in wrong["lines"][0]["problems"][0]
+    _, right = runs.dry_run([path], study.root / "runs", {}, False, None, "{pass}/traces")
+    assert all(r["decision"] == "scored" and not r["problems"] for r in right["lines"])
 
 
 # End to end on the synthetic study ------------------------------------------------------

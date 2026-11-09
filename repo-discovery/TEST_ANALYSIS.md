@@ -45,7 +45,7 @@ The dry run takes every registered run list. Item 12 names the lists, and items 
 - whether `pred.jsonl` exists, and how many traces;
 - the `run.env` host and completion stamp, and whether its commit matches item 12's.
 
-It then lists registered passes that appear in no list. It also lists the S1 directories under `runs/withdrawn-concurrency/` and checks only that they exist. `run.env` is read line by line; only `started`, `finished`, `complete`, `host`, `cursor_agent`, `tools` and keys naming a commit are kept, so tokens in it are never stored or printed.
+It gives the `trace_dir` template the lines' `--trace-dir`s share and, with `INPUTS.json`, marks a line whose traces aren't at that file's `trace_dir`. It then lists registered passes that appear in no list. It also lists the S1 directories under `runs/withdrawn-concurrency/` and checks only that they exist. `run.env` is read line by line; only `started`, `finished`, `complete`, `host`, `cursor_agent`, `tools` and keys naming a commit are kept, so tokens in it are never stored or printed.
 
 Scoring checks `--registered` first, then refuses to run if the analysis code differs from its commit, unless you pass `--allow-dirty`, or if `INPUTS.json` gives no `costs` or `merge_dates`. The report's header names the commit and says whether the tree was clean. `--allow-pending` scores without pending passes, and isn't for the reported run (item 3). `--s1` adds sensitivity analysis S1.
 
@@ -169,8 +169,10 @@ Each item says what the code does. Items 1 to 7 were put to the study's coordina
    - `grepToolCall`, `ripgrepToolCall` and `globToolCall` events;
    - `mcpToolCall` events whose `toolName` is `search_repos`, or whose `name` ends in it.
 
-   The agents have no shell, so shell `rg` isn't a case. No dev `events.jsonl` is in the repo, or in the store outside the blinded test area, so these names weren't checked against real dev output. If the CLI used other names, every run would count as "no such call". *Decided:* check the parser against the dev event key names that a worker with dev traces records, and nothing else; fix it and rerun the tests if they differ.
-5. **Where the traces are.** The run lines put `--trace-dir` inside each pass directory. `trace_dir` defaults to the pass directory itself. The dry run's Files column counts traces where each line says they are. *Decided:* set `trace_dir` from a dry run on the real run lists.
+   The agents have no shell, so shell `rg` isn't a case. If the CLI used other names, every run would count as "no such call". *Decided:* check the parser against the key names a worker with dev traces records, and nothing else. *Checked* (2026-11-09) against one dev `events.jsonl` from EXP-35's U5000 `search_repos` timing pass: it has `grepToolCall`, `globToolCall`, `readToolCall` and `mcpToolCall` with `toolName` `search_repos`, at the paths the code reads. `ripgrepToolCall` doesn't occur, which does no harm. Nothing needed changing, and `test_first_search_reads_the_dev_event_layout` builds its events in that file's layout.
+
+   A grep call's string arguments include `outputMode` (such as `files_with_matches`) and `toolCallId` (such as `toolu_01...`), and a whole-token match allows `_` beside the owner. So an owner spelled like one of their parts would count as named. Item 17 defines the search string as every string argument other than the path arguments, so the code keeps them. Taking only `pattern` and `glob` would be a deviation, for the addendum to record.
+5. **Where the traces are.** `trace_dir` defaults to the pass directory itself. The dry run turns each line's `--trace-dir` into a `trace_dir` template, reports the one the lines share, and, given INPUTS.json, flags a line whose traces aren't at its `trace_dir`. A wrong `trace_dir` stops scoring anyway, with every case missing its trace. *Decided:* set `trace_dir` from a dry run on the real run lists.
 6. **What `run.env` names.**
    - The code checks every `run.env` key containing "commit" (or `run_env_commit_key`) against item 12's commit, and stops on a mismatch or on a rerun pass without a `run.env`.
    - If a `run.env` names no commit, the pass is labelled "run.env names no commit" and scored. The passes table lists every such pass in a note. Items 12 and 16 are then the record of its commit.

@@ -62,6 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             inputs.accept if inputs else {},
             args.s1,
             inputs.run_env_commit_key if inputs else None,
+            inputs.trace_dir if inputs else None,
         )
         print(text, end="")
         if args.out:
