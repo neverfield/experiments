@@ -1,3 +1,4 @@
+import http.client
 import json
 import sys
 import tempfile
@@ -10,6 +11,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from analyze import changes, same_title, sweep_like, ts  # noqa: E402
 from cochange import score as cochange_score  # noqa: E402
 from doc_profile import auc  # noqa: E402
+from same_org.gh import read_body  # noqa: E402
 from same_org.orgs import in_owners, load_census, owners_of, search_scope  # noqa: E402
 from score_review import cell, wilson  # noqa: E402
 
@@ -103,6 +105,36 @@ class ChangesTest(unittest.TestCase):
         self.assertTrue(same_title(["Fix the shader cache", "fix the shader cache!"]))
         self.assertFalse(same_title(["Fix the shader cache", "Fix the shader"]))
         self.assertFalse(same_title(["Fix the shader cache"]))
+
+
+class _Body:
+    """A response that hands out `chunks` one read at a time; `length` is what is unread."""
+
+    def __init__(self, chunks, length=None):
+        self.chunks, self.length = list(chunks), length
+
+    def read(self, amt):
+        if not self.chunks:
+            return b""
+        c = self.chunks.pop(0)
+        if self.length is not None:
+            self.length -= len(c)
+        return c
+
+
+class ReadBodyTest(unittest.TestCase):
+    def test_whole_body_is_returned(self):
+        self.assertEqual(read_body(_Body([b"ab", b"c"], length=3), 10, clock=lambda: 0), b"abc")
+        self.assertEqual(read_body(_Body([b"ab", b"c"]), 10, clock=lambda: 0), b"abc")
+
+    def test_trickling_body_hits_the_deadline(self):
+        ticks = iter(range(100))
+        with self.assertRaises(TimeoutError):
+            read_body(_Body([b"x"] * 50), 5, clock=lambda: next(ticks))
+
+    def test_body_cut_short_of_its_length_raises(self):
+        with self.assertRaises(http.client.IncompleteRead):
+            read_body(_Body([b"ab"], length=5), 10, clock=lambda: 0)
 
 
 if __name__ == "__main__":

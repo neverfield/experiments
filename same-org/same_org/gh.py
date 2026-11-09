@@ -22,6 +22,25 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 API = "https://api.github.com"
+REQUEST_DEADLINE_S = float(os.environ.get("SAME_ORG_REQUEST_DEADLINE_S", "300"))
+
+
+def read_body(r, deadline: float, clock=time.monotonic) -> bytes:
+    """Read a response body by chunks, failing once `clock()` passes `deadline`.
+
+    The socket timeout bounds each read, not the body, so a body that trickles in can hold
+    a worker for good. read(amt) also returns short instead of raising when a body with a
+    Content-Length is cut off, so the remaining length is checked here.
+    """
+    chunks = []
+    while chunk := r.read(1 << 16):
+        chunks.append(chunk)
+        if clock() > deadline:
+            raise TimeoutError(f"response body still incomplete after the deadline "
+                               f"({sum(map(len, chunks))} bytes)")
+    if r.length:
+        raise http.client.IncompleteRead(b"".join(chunks), r.length)
+    return b"".join(chunks)
 
 
 def _token() -> str:
@@ -133,7 +152,7 @@ class GitHub:
             t0 = time.monotonic()
             try:
                 with urllib.request.urlopen(req, timeout=120) as r:
-                    raw = r.read()
+                    raw = read_body(r, t0 + REQUEST_DEADLINE_S)
                     self.auth_failures = 0
                     self.spend.add(bytes_in=len(raw), request_s=time.monotonic() - t0)
                     rem = r.headers.get("x-ratelimit-remaining")
