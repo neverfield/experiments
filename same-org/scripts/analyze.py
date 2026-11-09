@@ -101,10 +101,12 @@ def ts(s: str | None) -> datetime | None:
     return datetime.fromisoformat(s.replace("Z", "+00:00")) if s else None
 
 
-def changes(cases: list[dict], methods: tuple[str, ...], max_targets: int) -> list[dict]:
+def changes(cases: list[dict], methods: tuple[str, ...], max_targets: int,
+            opened: dict[str, datetime]) -> list[dict]:
     """Distinct multi-repo changes: the methods' multi-repo cases joined wherever they share a
     PR. Each change lists the non-bot issue-strong hubs linked to any of its PRs (a single-repo
-    issue case can still be the request for a multi-repo change)."""
+    issue case can still be the request for a multi-repo change), and the seconds between its
+    first and last PR being opened (`opened` maps owner/repo#n to createdAt)."""
     parent: dict[str, str] = {}
 
     def find(x: str) -> str:
@@ -141,8 +143,18 @@ def changes(cases: list[dict], methods: tuple[str, ...], max_targets: int) -> li
         pre = [c for c in reqs.get(r, []) if c["hub"]["createdAt"] and r in first
                and ts(c["hub"]["createdAt"]) < first[r]]
         pre.sort(key=lambda c: c["hub"]["createdAt"])
+        ts_ = [opened[p] for p in ps if p in opened]
         out.append({"targets": targets, "prs": sorted(ps), "has_issue": bool(reqs.get(r)),
-                    "pre_work_issue": pre[0]["group"] if pre else None})
+                    "pre_work_issue": pre[0]["group"] if pre else None,
+                    "opened_spread_s": (max(ts_) - min(ts_)).total_seconds() if ts_ else None})
+    return out
+
+
+def pr_opened(path: Path) -> dict[str, datetime]:
+    out = {}
+    for p in load(path):
+        repo, _, n = p["url"].removeprefix("https://github.com/").partition("/pull/")
+        out[f"{repo}#{n}"] = ts(p["createdAt"])
     return out
 
 
@@ -265,13 +277,21 @@ def main() -> None:
                     [(c["group"], c["targets"]) for c in multi if c["hub"]["pre_work"]]))
             org_out["methods"][method] = m
         org_out["changes"] = {}
+        opened = pr_opened(d / "prs.jsonl.gz")
         for name, methods in COMBOS.items():
-            ch = changes(cases, methods, a.max_targets)
+            ch = changes(cases, methods, a.max_targets, opened)
             n = len(ch)
             sizes = Counter(min(len(c["targets"]), 4) for c in ch)
+            pairs = Counter(tuple(c["targets"]) for c in ch)
+            top = pairs.most_common(1)
             co = {
                 "methods": list(methods), "changes": n,
                 "t2": sizes[2], "t3": sizes[3], "t4plus": sizes[4],
+                "opened_within_2min": round(sum(1 for c in ch if c["opened_spread_s"] is not None
+                                                and c["opened_spread_s"] <= 120) / n, 3)
+                if n else None,
+                "top_target_set": list(top[0][0]) if top else None,
+                "top_target_set_share": round(top[0][1] / n, 3) if top else None,
                 "with_issue": round(sum(c["has_issue"] for c in ch) / n, 3) if n else None,
                 "with_pre_work_issue": round(sum(bool(c["pre_work_issue"]) for c in ch) / n, 3)
                 if n else None,

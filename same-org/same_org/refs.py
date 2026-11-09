@@ -167,6 +167,7 @@ BOT_LOGINS = re.compile(
     r"^grafanabot|^hashicorp-tsccr|^hc-github-team|^dotnet-maestro|^dotnet-bot|^azure-sdk|"
     r"^openshift-bot|^openshift-ci|^openshift-merge|^microsoft-github-policy|^msftbot|^snyk-bot|"
     r"^pre-commit-ci|^greenkeeper|^google-cloud-policy|^yoshi-automation|^gcf-|^forking-renovate|"
+    r"^modular-magician|"
     r"bot$|-bot\b|-automation$|^svc-|^service-account)",
     re.I,
 )
