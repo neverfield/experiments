@@ -418,7 +418,7 @@ Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendu
       - §5 says "Every test cell runs from one pushed commit, named in the results."
       - The only record of the static runs is entry 1's "Static rankers ran on the host's clean corpus and are unaffected." No entry or item names their commit or their files, or says whether the set was complete.
     - **The host files.** The laptop holds 240 static prediction files written on 2026-11-01, covering the 20 × 5 × 2 grid. Neither the files nor their logs record a commit.
-      - The committed static ranking code ranks the same at every commit the laptop could have had that day. But no record shows whether the tree was clean or the commit pushed.
+      - The committed static ranking code ranks the same at every commit the laptop could have had that day. But the files can't show whether the tree was clean or the commit pushed.
       - At 11:30 UTC on 2026-11-01, the laptop was on the unpushed `45f673c`, with uncommitted edits (entry 7).
     - **The rule.** The coordinator decided it under Andrew's standing rule to favour integrity (see the introduction), before any audit of the host files ran.
       - All 241 static cells are rerun at `c4b458f` on the laptop's runner (`docker/run.sh`, item 7), and those reruns are scored. `c4b458f` is pushed and descends from `76882fe`, and entry 7's reruns ran from it.
@@ -429,18 +429,25 @@ Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendu
       - Each cell runs `repo-discovery run --split test --registered 76882fe`. The script prints counts only and scores nothing.
       - The reruns read the runner volume's corpus, which since entry 1's fix holds the host corpus's 1,871,832 files.
       - Run dates: [run dates, UTC].
-    - **The host files' record.** `audit-static.py` (sha256 `2ed4da9a16b463ff15bf0be8af04c35cf5bcd4370ebc1c35aa4a1fa20baee93d`) reads the files in code and prints only counts, digests and times, with no ranking or metric.
-      - Start times: [first and last start, UTC; files started before 06:45:38 UTC on 2026-11-01].
-      - Audit: [files passing, of 240; log lines naming a metric].
-      - Shell history: [shell-history evaluate over runs/static: none / found].
+    - **The host files' record.** Added on 2026-11-09 from the laptop's host-side checks. It's a record only and doesn't change the rule. `audit-static.py` (sha256 `2ed4da9a16b463ff15bf0be8af04c35cf5bcd4370ebc1c35aa4a1fa20baee93d`) reads the files in code and prints only counts, digests and times, with no ranking or metric. Times are UTC on 2026-11-01.
+      - **Start times.** A file's birth time is its start. The first file started at 07:07:34, 22 minutes after registration, and the last at 21:19:26. None started before registration (06:45:38) or before `scripted.py` was first committed (04:02:06). Only 10 of the 240 have a birth time equal to their modification time, so the files weren't copied, and these are their run times.
+      - **HEAD at each start, from the laptop's git records.** 33 files started under `15ec4ed`, the commit after registration, pushed at 06:46:00. 1 started under `17ebece` and 17 under `45f673c`, neither pushed until 11:31:18; 14 of the 17 are real-name U10000 files and 3 real-name U1000. The other 189 started under `f85b205`, after it was pushed. The host's Python was an editable install of that worktree, so it ran the working tree's code, and nothing shows whether the tree was clean.
+      - **Audit, at `683880b`.** All 240 files were found. 0 of 240 pass the content checks, because every file holds 120 rows: the 59 test cases and the 61 dev cases. Every other check passes:
+        - no missing, unknown or duplicate case, and no row with extra keys;
+        - the right ranker and size in every row;
+        - 5 distinct draws in each of the 10 `bm25f-deps-random` cells;
+        - one macOS-native universe root per name condition and size.
+      - **Logs.** The 240 logs have 0 lines naming a metric. They have 79 unexpected lines, all in the 20 logs of `dense-cards` and `hybrid-rrf`.
+      - **Shell history.** The laptop's zsh history (433 lines) has 0 lines matching `repo-discovery (run|evaluate)`, and there's no bash history. No line matches the batch's own `run` commands either, so the history doesn't record how the batch was started.
       - Reproduction: [host files whose digest matches their rerun's, of 240].
-      - If any host file started before registration, the registration's "no test case had been run, scored or inspected" gets a correction in its own dated item.
+      - **The registration's opening statement needs no correction.** No host file started before registration, so "When this was written, no test case had been run, scored or inspected" holds. The 2026-11-01 batch ran the test cases through the static rankers from 07:07:34, 22 minutes after registration, and no log line or shell-history line shows its output evaluated.
     - **`u50-real-hybrid-rrf-L0` completes a registered cell, so it isn't a deviation.** §6's deviation 1 registers the cell. The 2026-11-01 batch covered only the 20 × 5 × 2 grid and missed it, so it has no host file.
       - It's run with the other 240 cells at `c4b458f`, on the volume's real-name corpus restricted to L0 by `fetch_levels restrict`.
       - §5 is read per cell (item 16), and this item names the cell's commit.
     - **`merge_dates`.** It feeds §4's exploratory change-memory split. §4 gives that split from `scripts/model_cutoffs.py` as "Test has 25 cases before and 34 after", so the script ran before registration. But no `--out` file was kept, and scoring reads that file.
-      - It's built at `c4b458f` by `build-merge-dates.sh` (sha256 `de6fc55d26da16733be5ead3a5104d01c892d50e17f5ddea084500683d889535`) from the 2026-11-01 date cache.
+      - It's built at `c4b458f` by `build-merge-dates.sh` (sha256 `de6fc55d26da16733be5ead3a5104d01c892d50e17f5ddea084500683d889535`) from the 2026-11-01 date cache, with the network on.
       - It reads case metadata, WideSWE's `repos.yaml` and the cache, and no prediction, trace or score. `model_cutoffs.py` and the modules it uses are unchanged from `5070bc0`, where it was first committed, to `c4b458f`.
       - The script copies the cache aside and compares checksums before and after. An unchanged checksum means every date came from the 2026-11-01 cache.
-      - Built: [date, UTC]. Cache checksum: [unchanged or changed]. Test cases before and after the cutoff: [before / after; registered 25 / 34].
+      - `/data/cache` wasn't writable in the runner, so the script ran by its own `CACHE_SRC` route: `REPO_DISCOVERY_CACHE=/data/cache-merge-dates`, with `wideswe` linked to `/data/cache/wideswe`. Neither the script nor the original cache changed.
+      - Built: [date, UTC]. The cache's sha256, `fb2f43b303f8f13bbdc9a32b838d8cd297053161c96b49955ac9f4020842c80d`, was the same before and after, so every date came from the 2026-11-01 cache. All 120 cases are dated. 25 of the 59 test cases fall before 2026-03-01 and 34 after, as §4 registers.
     - **Deviation.** The scored static runs aren't the ones entry 1 records, so this departs from entry 1, to meet §5. It was decided before any static output was audited, compared or scored. The scoring code is unchanged at `683880b`, and the reruns and `merge_dates` are inputs it reads.
