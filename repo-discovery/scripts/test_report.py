@@ -1,159 +1,81 @@
-"""The preregistered test analysis (PREREGISTRATION.md §4): per-cell metrics on the test
-split, pooled over passes, and paired comparisons with an ecosystem-cluster bootstrap.
+"""The preregistered held-out test analysis: PREREGISTRATION.md §4 with the addendum to
+entry 7, frozen before any test score was read. See TEST_ANALYSIS.md.
 
-    python test_report.py CELLS.json --comparisons COMPARISONS.json --registered COMMIT
+    python scripts/test_report.py INPUTS.json --registered COMMIT --out DIR \\
+        [--allow-pending] [--s1] [--allow-dirty]
+    python scripts/test_report.py --dry-run RUNLIST [--dry-run RUNLIST ...] \\
+        (INPUTS.json | --runs-root ROOT) [--s1] [--out FILE]
 
-COMMIT is the registration commit, which the checkout must descend from. The tables go to
-stdout, and `--out FILE` also writes them as JSON. CELLS.json maps a cell name to
-{"names": "real"|"hidden", "size": N, "cases": PATH, "predictions": [PATH, ...]} (one file
-per pass). Comparisons are listed in COMPARISONS.
+COMMIT is the registration commit, which the checkout must descend from; it's checked
+before anything is read. INPUTS.json says where the cases, passes, static runs,
+universes and optional inputs are (TEST_ANALYSIS.md). Each agent cell's per-case values
+are the mean over its passes (addendum item 15). The report, tables, figures, CSVs and
+JSON go to DIR, and the confirmatory table to stdout. Scoring stops, before any
+prediction is read, if a registered pass is pending (unless ``--allow-pending``), fails
+its trace bounds, or the code differs from its commit (unless ``--allow-dirty``).
+
+``--dry-run`` reads only the run lists, ``run.env`` stamps and file names, and reports
+which passes would be scored and which withdrawn passes S1 would read. It opens no
+prediction or trace, and needs no ``--registered``.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import statistics
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-import numpy as np
+from heldout_report import build, code_version, write
+from heldout_runs import dry_run
+from heldout_score import Inputs, ScoringError
 
-from repo_discovery.cases import read_cases, select_cases
-from repo_discovery.metrics import case_metrics
-from repo_discovery.predictions import read_predictions
 from repo_discovery.split import check_registered
-
-KS = (5, 10, 20, 50, 100)
-METRICS = (
-    "Hit@10",
-    "CompleteRecall@10",
-    "CompleteRecall@20",
-    "CompleteRecall@50",
-    "RequiredRecall@10",
-    "LastRequiredRank",
-)
-N_BOOT, SEED = 2000, 0
-
-
-def per_case(cell: dict) -> tuple[dict[str, dict[str, float]], dict[str, str], int]:
-    cases = {c.case_id: c for c in select_cases(read_cases(Path(cell["cases"])), split="test")}
-    passes = []
-    for path in cell["predictions"]:
-        ranked = {p.case_id: p.ranking for p in read_predictions(Path(path))}
-        missing = sorted(set(cases) - set(ranked))
-        if missing:
-            raise SystemExit(f"{path}: {len(missing)} test cases have no prediction")
-        passes.append(ranked)
-    values = {}
-    for case_id, case in cases.items():
-        runs = [case_metrics(case.gold_repos, p[case_id], KS) for p in passes]
-        values[case_id] = {m: statistics.fmean(r[m] for r in runs) for m in METRICS}
-    return values, {i: c.ecosystem for i, c in cases.items()}, len(passes)
-
-
-def bootstrap(diffs: np.ndarray, clusters: list[str]) -> tuple[float, float, float, float]:
-    _, index = np.unique(np.asarray(clusters), return_inverse=True)
-    sums, counts = np.bincount(index, weights=diffs), np.bincount(index)
-    draws = np.random.default_rng(SEED).integers(0, len(sums), size=(N_BOOT, len(sums)))
-    reps = sums[draws].sum(axis=1) / counts[draws].sum(axis=1)
-    low, high = np.quantile(reps, [0.025, 0.975])
-    return float(diffs.mean()), float(low), float(high), float((reps <= 0).mean())
-
-
-def holm(pvalues: dict[str, float], alpha: float = 0.05) -> dict[str, tuple[float, bool]]:
-    order = sorted(pvalues, key=pvalues.get)
-    out, running, rejecting = {}, 0.0, True
-    m = len(order)
-    for i, name in enumerate(order):
-        adjusted = min(1.0, max(running, (m - i) * pvalues[name]))
-        running = adjusted
-        rejecting = rejecting and adjusted <= alpha
-        out[name] = (adjusted, rejecting)
-    return out
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    p = argparse.ArgumentParser()
-    p.add_argument("cells", type=Path)
-    p.add_argument("--comparisons", type=Path, required=True)
-    p.add_argument(
-        "--registered",
-        metavar="COMMIT",
-        help="the commit that registered the preregistration; needed to read test cases",
-    )
-    p.add_argument("--out", type=Path)
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("inputs", nargs="?", type=Path, metavar="INPUTS.json")
+    p.add_argument("--registered", metavar="COMMIT", help="the commit that registered the preregistration")
+    p.add_argument("--out", type=Path, help="report directory; with --dry-run, a JSON file")
+    p.add_argument("--allow-pending", action="store_true", help="score without the pending passes")
+    p.add_argument("--s1", action="store_true", help="add sensitivity analysis S1 (off by default)")
+    p.add_argument("--allow-dirty", action="store_true", help="run on code that differs from its commit")
+    p.add_argument("--dry-run", type=Path, action="append", metavar="RUNLIST")
+    p.add_argument("--runs-root", type=Path, help="with --dry-run and no INPUTS.json")
     args = p.parse_args(argv)
-    check_registered(args.registered)
-    spec = json.loads(args.cells.read_text())
-    comparisons = json.loads(args.comparisons.read_text())
-    results, eco = {}, {}
-    for name, cell in spec.items():
-        values, ecosystems, passes = per_case(cell)
-        eco[name] = ecosystems
-        ids = sorted(values)
-        clusters = [ecosystems[i] for i in ids]
-        summary = {}
-        for m in METRICS:
-            arr = np.array([values[i][m] for i in ids])
-            mean, low, high, _ = bootstrap(arr, clusters)
-            summary[m] = [round(mean, 4), round(low, 4), round(high, 4)]
-        results[name] = {
-            **cell,
-            "passes": passes,
-            "cases": len(ids),
-            "metrics": summary,
-            "per_case": values,
-        }
-    rows, confirmatory = [], {}
-    for comp in comparisons:
-        a, b, metric = comp["a"], comp["b"], comp.get("metric", "CompleteRecall@10")
-        ids = sorted(results[a]["per_case"])
-        if ids != sorted(results[b]["per_case"]):
-            raise SystemExit(f"{a} and {b} cover different cases")
-        diffs = np.array(
-            [results[a]["per_case"][i][metric] - results[b]["per_case"][i][metric] for i in ids]
-        )
-        mean, low, high, p_one = bootstrap(diffs, [eco[a][i] for i in ids])
-        row = {
-            **comp,
-            "metric": metric,
-            "diff": round(mean, 4),
-            "ci": [round(low, 4), round(high, 4)],
-            "p_one_sided": round(p_one, 4),
-            "won": int((diffs > 0).sum()),
-            "lost": int((diffs < 0).sum()),
-        }
-        rows.append(row)
-        if comp.get("family") == "confirmatory":
-            confirmatory[comp["id"]] = p_one
-    adjusted = holm(confirmatory)
-    for row in rows:
-        if row.get("id") in adjusted:
-            row["p_holm"], row["reject"] = round(adjusted[row["id"]][0], 4), adjusted[row["id"]][1]
 
-    print("# Test results (59 cases, 30 ecosystems; generated by test_report.py)\n")
-    print("| Cell | Names | Size | Passes | " + " | ".join(METRICS) + " |")
-    print("|---|---|--:|--:|" + "--:|" * len(METRICS))
-    for name, r in results.items():
-        cells = " | ".join(f"{v[0]:.3f} [{v[1]:.3f}, {v[2]:.3f}]" for v in r["metrics"].values())
-        print(f"| {name} | {r['names']} | {r['size']} | {r['passes']} | {cells} |")
-    print(
-        "\n| ID | Comparison | Metric | Diff [95% CI] | Won / lost | p (one-sided) "
-        "| Holm p | Reject |"
-    )
-    print("|---|---|---|---|---|--:|--:|---|")
-    for row in rows:
-        print(
-            f"| {row.get('id', '')} | {row['a']} vs {row['b']} | {row['metric']} | "
-            f"{row['diff']:+.3f} [{row['ci'][0]:+.3f}, {row['ci'][1]:+.3f}] | "
-            f"{row['won']} / {row['lost']} | {row['p_one_sided']:.4f} | "
-            f"{row.get('p_holm', '')} | {row.get('reject', '')} |"
+    if args.dry_run:
+        inputs = Inputs.load(args.inputs) if args.inputs else None
+        root = args.runs_root or (inputs.runs_root if inputs else None)
+        if root is None:
+            p.error("--dry-run needs INPUTS.json or --runs-root")
+        text, record = dry_run(
+            args.dry_run,
+            root,
+            inputs.accept if inputs else {},
+            args.s1,
+            inputs.run_env_commit_key if inputs else None,
         )
-    if args.out:
-        slim = {k: {kk: vv for kk, vv in v.items() if kk != "per_case"} for k, v in results.items()}
-        args.out.write_text(json.dumps({"cells": slim, "comparisons": rows}, indent=1))
+        print(text, end="")
+        if args.out:
+            args.out.write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+        return 0
+
+    registered = check_registered(args.registered)
+    if args.inputs is None or args.out is None:
+        p.error("scoring needs INPUTS.json and --out")
+    version = code_version()
+    if version["dirty"] and not args.allow_dirty:
+        raise ScoringError(
+            "the analysis code differs from its commit "
+            f"({', '.join(version['changed'][:5])}); commit it, or pass --allow-dirty"
+        )
+    report = build(Inputs.load(args.inputs), registered, args.allow_pending, args.s1)
+    write(report, args.out)
+    print(f"## {len(report.results)} cells scored; report in {args.out / 'report.md'}\n")
+    print(report.tables["confirmatory"], end="")
     return 0
 
 

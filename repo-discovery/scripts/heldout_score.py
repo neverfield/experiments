@@ -263,8 +263,10 @@ def universe_root(inputs: Inputs, names: str, size: int) -> Path | None:
 # Per-ranking values -------------------------------------------------------------------
 
 
-def _ordered(ranking: Sequence[str]) -> list[str]:
-    return list(dict.fromkeys(repo_key(r) for r in ranking))
+def complete_at_given(gold: Sequence[str], ranking: Sequence[str]) -> float:
+    """Item 17's CR@|G|: 1 when the first |G| ranks are exactly G."""
+    targets = {repo_key(g) for g in gold}
+    return float({repo_key(r) for r in ranking[: len(targets)]} == targets)
 
 
 def ranking_values(
@@ -275,11 +277,12 @@ def ranking_values(
 ) -> dict[str, float]:
     """One ranking's per-case values: §4's metrics at ``KS``; item 17's CR@|G|,
     non-targets above the last target (inf when censored) and, with the universe, the
-    top-10 fill and the within-owner rescoring; and §4's metrics on reviewed gold."""
+    top-10 fill and the within-owner rescoring; and §4's metrics on reviewed gold. Ranks
+    are positions in the ranking as saved, as in ``case_metrics``."""
     values = case_metrics(gold, ranking, KS)
-    keys = _ordered(ranking)
+    keys = [repo_key(r) for r in ranking]
     targets = {repo_key(g) for g in gold}
-    values[GIVEN] = float(set(keys[: len(targets)]) == targets)
+    values[GIVEN] = complete_at_given(gold, ranking)
     last = values["LastRequiredRank"]
     values[ABOVE_LAST] = math.inf if last >= LAST_RANK_CAP else last - len(targets)
     if universe is not None:
@@ -295,7 +298,7 @@ def ranking_values(
         values[f"{TOP10}other-owner"] = float(len(top) - named)
         within = [k for k in keys if k in universe.owner_set]
         rescored = case_metrics(gold, within, KS)
-        rescored[GIVEN] = float(set(within[: len(targets)]) == targets)
+        rescored[GIVEN] = complete_at_given(gold, within)
         values |= {f"{OWNER}{m}": rescored[m] for m in OWNER_METRICS}
     if reviewed is not None:
         again = case_metrics(reviewed, ranking, KS)
@@ -304,7 +307,9 @@ def ranking_values(
 
 
 def target_ranks(gold: Sequence[str], ranking: Sequence[str]) -> str:
-    position = {k: i for i, k in enumerate(_ordered(ranking), start=1)}
+    position: dict[str, int] = {}
+    for rank, repo in enumerate(ranking, start=1):
+        position.setdefault(repo_key(repo), rank)
     return ",".join(str(position.get(repo_key(g), "-")) for g in gold)
 
 
