@@ -44,10 +44,12 @@ def cell(entries: list) -> dict:
     n = len(vs)
     s = sum(v == "same" for v in vs)
     p = sum(v == "partial" for v in vs)
+    u = sum(e["v"] == "same" and e.get("kind") != "sweep" for e in es)
     return {
         "n": n, "same": s, "partial": p, "not": n - s - p,
         "strict": round(s / n, 3) if n else None, "strict_ci": wilson(s, n),
         "lenient": round((s + p) / n, 3) if n else None, "lenient_ci": wilson(s + p, n),
+        "same_not_sweep": round(u / n, 3) if n else None, "same_not_sweep_ci": wilson(u, n),
         "unsure": sum(bool(e.get("unsure")) for e in es),
         "kinds_same": dict(Counter(e.get("kind", "?") for e in es if e["v"] == "same")),
         "kinds_not": dict(Counter(e.get("kind", "?") for e in es if e["v"] == "not")),

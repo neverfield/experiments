@@ -296,6 +296,7 @@ def main() -> None:
                 "with_pre_work_issue": round(sum(bool(c["pre_work_issue"]) for c in ch) / n, 3)
                 if n else None,
                 "distinct_targets": len({t for c in ch for t in c["targets"]}),
+                "prs_in_changes": sum(len(c["prs"]) for c in ch),
             }
             co.update(score_requests(
                 [(c["pre_work_issue"], c["targets"]) for c in ch if c["pre_work_issue"]]))

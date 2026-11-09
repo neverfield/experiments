@@ -89,10 +89,20 @@ def main() -> None:
     rows = []
     for o in orgs:
         m = an[o]["methods"]
+        usable = (jload(mined / o / "case_summary.json") or {}).get("window_prs_usable") or 0
+        work = []
+        for c in ("strict", "links"):
+            x = an[o]["changes"][c]
+            lone = usable - x.get("prs_in_changes", 0)
+            work.append(round(lone / (lone + x["changes"]), 3) if lone + x["changes"] else None)
         rows.append([o] + [m.get(k, {}).get("single_rate") for k in ("issue-close", "issue-strong", "issue-ref")]
-                    + [m.get(k, {}).get("cases") for k in ("issue-close", "issue-strong", "issue-ref")])
-    out.append("### Single-repo rate of issue-linked work\n\n" + table(
-        ["Org", "issue-close", "issue-strong", "issue-ref", "Cases: close", "strong", "ref"], rows))
+                    + [m.get(k, {}).get("cases") for k in ("issue-close", "issue-strong", "issue-ref")]
+                    + work)
+    out.append("### Single-repo rate\n\nIssue columns: share of issue-linked cases with one target "
+               "repo. Work columns: lone PRs over lone PRs plus distinct changes, counting each "
+               "PR outside a change as one piece of single-repo work.\n\n" + table(
+        ["Org", "issue-close", "issue-strong", "issue-ref", "Cases: close", "strong", "ref",
+         "Work: strict", "Work: links"], rows))
 
     rows = []
     for o in orgs:
@@ -154,14 +164,17 @@ def main() -> None:
     if a.scores:
         s = json.loads(Path(a.scores).expanduser().read_text())
         rows = [[m, c["n"], c["same"], c["partial"], c["not"], c["strict"], str(c["strict_ci"]),
-                 c["lenient"], str(c["lenient_ci"]), c["unsure"],
+                 c["lenient"], str(c["lenient_ci"]), c.get("same_not_sweep"),
+                 str(c.get("same_not_sweep_ci")), c["unsure"],
                  ", ".join(f"{k} {v}" for k, v in sorted(c["kinds_same"].items(), key=lambda x: -x[1]))]
                 for m, c in s["by_method"].items()]
         out.append("### Precision by label method (hand-check)\n\n" + table(
             ["Method", "n", "Same", "Partial", "Not", "Strict", "95% CI", "Lenient", "95% CI",
-             "Unsure", "Kinds among same"], rows))
-        rows = [[o, c["n"], c["strict"], str(c["strict_ci"]), c["lenient"]] for o, c in s["by_org"].items()]
-        out.append("### Precision by org\n\n" + table(["Org", "n", "Strict", "95% CI", "Lenient"], rows))
+             "Same, not a sweep", "95% CI", "Unsure", "Kinds among same"], rows))
+        rows = [[o, c["n"], c["strict"], str(c["strict_ci"]), c["lenient"], c.get("same_not_sweep")]
+                for o, c in s["by_org"].items()]
+        out.append("### Precision by org\n\n" + table(
+            ["Org", "n", "Strict", "95% CI", "Lenient", "Same, not a sweep"], rows))
         for name, ag in (s.get("agreement") or {}).items():
             out.append(f"Agreement with `{name}`: n={ag['n']}, agree={ag.get('agree')}, "
                        f"kappa={ag.get('kappa')}, same-vs-rest agree={ag.get('agree_same_vs_rest')}")
