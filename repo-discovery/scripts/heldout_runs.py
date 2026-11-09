@@ -32,7 +32,8 @@ from heldout_plan import (
     provider_error_allowance,
 )
 
-# Only these run.env keys are kept; anything else in the file is skipped unread.
+# Only these run.env keys (and keys naming a commit) are kept; other lines are dropped
+# as they're parsed, never stored or printed.
 RUN_ENV_KEYS = ("started", "finished", "complete", "host", "cursor_agent", "tools")
 _COMMIT_KEY = re.compile(r"commit", re.IGNORECASE)
 _HEX = re.compile(r"[0-9a-f]{7,40}")
@@ -76,7 +77,9 @@ def commit_problem(env: Mapping[str, str] | None, registered: RegisteredPass | N
     expected = registered.commit
     if env is None:
         return f"no {RUN_ENV}; every rerun pass has one, and the registry expects {expected}"
-    wrong = [c for c in named_commits(env) if not (c.startswith(expected) or expected.startswith(c))]
+    wrong = [
+        c for c in named_commits(env) if not (c.startswith(expected) or expected.startswith(c))
+    ]
     if wrong:
         return f"{RUN_ENV} names commit {wrong[0][:12]}, not {expected}"
     return None
@@ -98,8 +101,10 @@ def provider_error_case(trace: Mapping) -> bool:
 
 
 def server_calls(trace: Mapping, tool: str) -> int:
-    return len(trace.get("searches") or []) if tool == "search_repos" else len(
-        trace.get("opens") or []
+    return (
+        len(trace.get("searches") or [])
+        if tool == "search_repos"
+        else len(trace.get("opens") or [])
     )
 
 
@@ -180,10 +185,13 @@ def audit_pass(
         audit.problems.append(f"{len(audit.timeouts)} timeout cases")
     allowed = provider_error_allowance(spec.name)
     if len(audit.provider_errors) > allowed:
-        audit.problems.append(f"{len(audit.provider_errors)} provider-error cases (bound {allowed})")
+        audit.problems.append(
+            f"{len(audit.provider_errors)} provider-error cases (bound {allowed})"
+        )
     if audit.cli_not_server:
         audit.problems.append(
-            f"tool bound (a): {len(audit.cli_not_server)} cases with CLI calls the server never logged"
+            f"tool bound (a): {len(audit.cli_not_server)} cases "
+            "with CLI calls the server never logged"
         )
     if len(audit.no_call) > MAX_NO_CALL_CASES:
         audit.problems.append(f"tool bound (b): {len(audit.no_call)} cases with no tool call")
@@ -268,8 +276,10 @@ def flag_problems(spec: CellSpec, run: ListedRun) -> list[str]:
         problems.append("doesn't run scripts/v5_dev_run.py")
     expect("split", "test")
     registered = f.get("registered")
-    if not isinstance(registered, str) or len(registered) < 7 or not REGISTRATION.startswith(
-        registered.lower()
+    if (
+        not isinstance(registered, str)
+        or len(registered) < 7
+        or not REGISTRATION.startswith(registered.lower())
     ):
         problems.append(f"--registered is {registered}, not the registration {REGISTRATION[:7]}")
     evidence = f.get("evidence", "packets")
@@ -305,13 +315,17 @@ class Decision:
 
 
 def _files(
-    directory: Path, registered: RegisteredPass | None, commit_key: str | None
+    directory: Path,
+    registered: RegisteredPass | None,
+    commit_key: str | None,
+    traces_dir: Path | None = None,
 ) -> tuple[str, list[str]]:
     """What a pass directory holds, by file name only, and its ``run.env`` commit check."""
     if not directory.is_dir():
         return "directory absent", []
     names = [p.name for p in directory.iterdir()]
-    traces = sum(n.endswith(".json") for n in names)
+    where = traces_dir or directory
+    traces = sum(p.name.endswith(".json") for p in where.iterdir()) if where.is_dir() else 0
     parts = [f"{PRED_FILE} {'present' if PRED_FILE in names else 'absent'}", f"{traces} traces"]
     env = read_run_env(directory / RUN_ENV, commit_key) if RUN_ENV in names else None
     if env is None:
@@ -343,7 +357,10 @@ def decide(
         )
         exists = "present" if directory.is_dir() else "absent"
         return Decision(run, "withdrawn", decision, f"directory {exists} (not opened)")
-    files, problems = _files(directory, registered, commit_key)
+    listed = run.flags.get("trace-dir")
+    files, problems = _files(
+        directory, registered, commit_key, Path(listed) if isinstance(listed, str) else None
+    )
     run.problems += problems
     if registered is None:
         return Decision(run, "unregistered", "not registered; never scored", files)
@@ -361,13 +378,15 @@ def decide(
 def dry_run(
     lists: Sequence[Path],
     runs_root: Path,
-    accept: Mapping[str, object] = {},  # noqa: B006
+    accept: Mapping[str, object] = {},
     s1: bool = False,
     commit_key: str | None = None,
 ) -> tuple[str, dict]:
     """A markdown report of which passes each run list would have scored, and the same as
     JSON. No prediction or trace is opened; S1's directories are only checked to exist."""
-    decisions = [decide(run, accept, s1, commit_key) for path in lists for run in parse_run_list(path)]
+    decisions = [
+        decide(run, accept, s1, commit_key) for path in lists for run in parse_run_list(path)
+    ]
     lines = [
         "# Dry run: which listed passes would be scored",
         "",

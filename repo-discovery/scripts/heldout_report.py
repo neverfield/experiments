@@ -82,7 +82,10 @@ from repo_discovery.stats import group_replicates, percentile_interval
 REPO = Path(__file__).resolve().parents[1]
 SET_QUALITY = (GIVEN, "CompleteRecall@3", "CompleteRecall@5", PRIMARY)
 # H2's control is weak on dev (entry 3 of §7): its dev numbers sit beside H2.
-DEV_H2 = "On dev at U5000 with real names, `scripted-search` scored CR@10 0.295 and `bm25f` 0.443 (§7, entry 3)."
+DEV_H2 = (
+    "On dev at U5000 with real names, `scripted-search` scored CR@10 0.295 "
+    "and `bm25f` 0.443 (§7, entry 3)."
+)
 FIGURE_STATIC = ("bm25f", "hybrid-rrf", "dense-cards", "name-match", "scripted-search")
 COLORS = ("#0072B2", "#E69F00", "#009E73", "#CC79A7", "#D55E00")
 FIRST_SEARCH = ("named", "not-named", "none")
@@ -122,14 +125,22 @@ def code_version(repo: Path = REPO) -> dict:
         ).stdout.strip()
 
     changed = git("status", "--porcelain", "--", "src", "scripts", "pyproject.toml")
-    return {"commit": git("rev-parse", "HEAD"), "dirty": bool(changed), "changed": changed.splitlines()}
+    return {
+        "commit": git("rev-parse", "HEAD"),
+        "dirty": bool(changed),
+        "changed": changed.splitlines(),
+    }
 
 
 def load_merge_dates(inputs: Inputs, cases: Mapping[str, CaseSet]) -> dict[str, str | None] | None:
     """Each real-name test case's last target merge (``model_cutoffs.py --out``)."""
     if inputs.merge_dates is None:
         return None
-    rows = [json.loads(line) for line in inputs.merge_dates.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = [
+        json.loads(line)
+        for line in inputs.merge_dates.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     found = {r["case_id"]: r.get("last_merge") for r in rows}
     return {i: found.get(i) for i in cases["real"].ids}
 
@@ -160,9 +171,12 @@ def build(inputs: Inputs, registered: str, allow_pending: bool = False, s1: bool
 
 
 def build_s1(
-    inputs: Inputs, cases: Mapping[str, CaseSet], results: Mapping[str, CellResult], allow_pending: bool
+    inputs: Inputs,
+    cases: Mapping[str, CaseSet],
+    results: Mapping[str, CellResult],
+    allow_pending: bool,
 ) -> dict:
-    """S1, minimal: the five passes' audits as written and H1–H3 with them in place."""
+    """S1, minimal: the five passes' audits as written and H1-H3 with them in place."""
     rescored = s1_results(inputs, cases, results, allow_pending)
     sources, _ = plan_passes(inputs, allow_pending, s1=True)
     audits = [
@@ -235,13 +249,18 @@ def summarize(report: Report, result: CellResult) -> CellSummary:
     visibility = report.cases[result.spec.names].visibility
     for group in GROUPS:
         ids = group_ids(report, result, group)
-        groups[group] = {k: estimate({i: result.per_case[i][k] for i in ids}, ids, report.ecosystem) for k in keys}
+        groups[group] = {
+            k: estimate({i: result.per_case[i][k] for i in ids}, ids, report.ecosystem)
+            for k in keys
+        }
         above[group] = above_last(result, ids)
         medians[group] = (
             statistics.median(result.per_case[i]["LastRequiredRank"] for i in ids) if ids else None
         )
         searches[group] = Counter(
-            kind for case_id, _, kind in result.first_search if group == "all" or visibility[case_id] == group
+            kind
+            for case_id, _, kind in result.first_search
+            if group == "all" or visibility[case_id] == group
         )
     return CellSummary(result, groups, above, searches, medians)
 
@@ -249,7 +268,9 @@ def summarize(report: Report, result: CellResult) -> CellSummary:
 def reference_rows(report: Report) -> list[dict]:
     """Item 17's two owner-given references per size and name condition."""
     rows, key = [], f"{OWNER}{PRIMARY}"
-    for (size, names), values in sorted(report.refs.items(), key=lambda kv: (kv[0][0], NAMES.index(kv[0][1]))):
+    for (size, names), values in sorted(
+        report.refs.items(), key=lambda kv: (kv[0][0], NAMES.index(kv[0][1]))
+    ):
         visibility = report.cases[names].visibility
         bm25f = report.results.get(f"u{size}-{names}-bm25f")
         within = bm25f is not None and bm25f.per_case and key in next(iter(bm25f.per_case.values()))
@@ -280,11 +301,14 @@ def memory_rows(report: Report) -> tuple[list[dict], list[str]]:
         for i, d in report.merge_dates.items()
     }
     counts = Counter(period.values())
-    notes = [f"{counts['before']} cases before {MEMORY_CUTOFF}, {counts['after']} after, {counts['undated']} undated"]
+    notes = [
+        f"{counts['before']} cases before {MEMORY_CUTOFF}, {counts['after']} after, "
+        f"{counts['undated']} undated"
+    ]
     if counts["before"] != MEMORY_SPLIT["before"] or counts["after"] != MEMORY_SPLIT["after"]:
         notes.append(
-            f"the registration says {MEMORY_SPLIT['before']} before and {MEMORY_SPLIT['after']} after; "
-            "these merge dates differ"
+            f"the registration says {MEMORY_SPLIT['before']} before and "
+            f"{MEMORY_SPLIT['after']} after; these merge dates differ"
         )
     rows = []
     for name, r in report.results.items():
@@ -305,7 +329,9 @@ def memory_rows(report: Report) -> tuple[list[dict], list[str]]:
                 SEED,
             )
             mean = row[f"{metric}:after"].mean - row[f"{metric}:before"].mean
-            low, high = percentile_interval(reps["after"] - reps["before"], ALPHA)
+            low = high = math.nan
+            if "before" in reps and "after" in reps:
+                low, high = percentile_interval(reps["after"] - reps["before"], ALPHA)
             row[f"{metric}:after-before"] = Interval(mean, low, high, len(ids))
         rows.append(row)
     return rows, notes
@@ -323,7 +349,9 @@ def reviewed_rows(report: Report) -> list[dict]:
         rows.append(
             {
                 "cell": name,
-                "wideswe": estimate({i: r.per_case[i][PRIMARY] for i in ids}, ids, report.ecosystem),
+                "wideswe": estimate(
+                    {i: r.per_case[i][PRIMARY] for i in ids}, ids, report.ecosystem
+                ),
                 "reviewed": estimate({i: r.per_case[i][key] for i in ids}, ids, report.ecosystem),
                 "reviewed-wideswe": estimate(diffs, ids, report.ecosystem),
             }
@@ -343,8 +371,12 @@ def miss_summary(result: CellResult) -> dict:
         "all in top 20": sum(all(x != "-" and int(x) <= 20 for x in r) for r in ranks),
     }
     if result.spec.agent:
-        out["a target outside the agent's list"] = sum(m.get("outside_own_list", 0) > 0 for m in result.misses)
-        out["errored or timed out"] = sum(m.get("status") in ("error", "timeout") for m in result.misses)
+        out["a target outside the agent's list"] = sum(
+            m.get("outside_own_list", 0) > 0 for m in result.misses
+        )
+        out["errored or timed out"] = sum(
+            m.get("status") in ("error", "timeout") for m in result.misses
+        )
         out["turn budget"] = sum(m.get("status") == "turn_budget" for m in result.misses)
     return out
 
@@ -353,7 +385,9 @@ def per_ecosystem(report: Report, d: Difference) -> list[tuple[str, int, float]]
     a, b = report.results[d.comparison.a], report.results[d.comparison.b]
     by: dict[str, list[float]] = defaultdict(list)
     for i in sorted(a.per_case):
-        by[report.ecosystem[i]].append(a.per_case[i][d.comparison.metric] - b.per_case[i][d.comparison.metric])
+        by[report.ecosystem[i]].append(
+            a.per_case[i][d.comparison.metric] - b.per_case[i][d.comparison.metric]
+        )
     return [(e, len(v), float(np.mean(v))) for e, v in sorted(by.items())]
 
 
@@ -361,22 +395,24 @@ def per_ecosystem(report: Report, d: Difference) -> list[tuple[str, int, float]]
 
 
 def iv(value: Interval | None, sign: bool = False) -> str:
-    return "–" if value is None else value.text(3, sign)
+    return "—" if value is None else value.text(3, sign)
 
 
 def num(value: float | None, digits: int = 3) -> str:
     if value is None or (isinstance(value, float) and math.isnan(value)):
-        return "–"
+        return "—"
     return f"{value:.{digits}f}"
 
 
 def p_text(p: float | None) -> str:
     if p is None:
-        return "–"
+        return "—"
     return f"< {1 / N_BOOT:.4f}" if p == 0 else f"{p:.4f}"
 
 
-def table(header: Sequence[str], rows: Iterable[Sequence[object]], right: Sequence[int] = ()) -> str:
+def table(
+    header: Sequence[str], rows: Iterable[Sequence[object]], right: Sequence[int] = ()
+) -> str:
     lines = ["| " + " | ".join(header) + " |"]
     lines.append("|" + "|".join("--:" if i in right else "---" for i in range(len(header))) + "|")
     lines += ["| " + " | ".join(str(c) for c in row) + " |" for row in rows]
@@ -387,13 +423,18 @@ def cell_order(results: Mapping[str, CellResult]) -> list[str]:
     role = {"primary": 0, "secondary": 1, "exploratory": 2, "baseline": 3}
     return sorted(
         results,
-        key=lambda n: (results[n].spec.size, NAMES.index(results[n].spec.names), role[results[n].spec.role], n),
+        key=lambda n: (
+            results[n].spec.size,
+            NAMES.index(results[n].spec.names),
+            role[results[n].spec.role],
+            n,
+        ),
     )
 
 
 def decision(d: Difference) -> str:
     if d.reject is None:
-        return "–"
+        return "—"
     return "reject H0" if d.reject else "don't reject H0"
 
 
@@ -418,12 +459,26 @@ def confirmatory_table(report: Report, summaries: Mapping[str, CellSummary]) -> 
                 decision(d),
             ]
         )
-    head = ["Test", "Question", "A", "CR@10 A", "B", "CR@10 B", "A − B [95% CI]", "Won / lost / tied", "p (one-sided)", "Holm p", "Decision"]
+    head = [
+        "Test",
+        "Question",
+        "A",
+        "CR@10 A",
+        "B",
+        "CR@10 B",
+        "A - B [95% CI]",
+        "Won / lost / tied",
+        "p (one-sided)",
+        "Holm p",
+        "Decision",
+    ]
     notes = [
         "",
-        f"Paired per-case differences of pass-pooled CR@10 (addendum item 15), {N_BOOT} ecosystem resamples, seed {SEED}. "
-        "The interval is two-sided and unadjusted; p is the share of resamples with a difference ≤ 0; "
-        f"Holm's step-down runs over these six tests at α = {ALPHA}.",
+        "Paired per-case differences of pass-pooled CR@10 (addendum item 15), "
+        f"{N_BOOT} ecosystem resamples, seed {SEED}. "
+        "The interval is two-sided and unadjusted; "
+        "p is the share of resamples with a difference ≤ 0; "
+        f"Holm's step-down runs over these six tests at alpha = {ALPHA}.",
         "",
         DEV_H2,
     ]
@@ -436,7 +491,7 @@ def comparison_table(diffs: Iterable[Difference], with_p: bool = False) -> str:
         [
             d.comparison.id,
             d.comparison.question,
-            f"`{d.comparison.a}` − `{d.comparison.b}`",
+            f"`{d.comparison.a}` - `{d.comparison.b}`",
             d.comparison.metric,
             iv(d.interval, sign=True),
             f"{d.won} / {d.lost} / {d.tied}",
@@ -444,7 +499,7 @@ def comparison_table(diffs: Iterable[Difference], with_p: bool = False) -> str:
         ]
         for d in diffs
     ]
-    head = ["ID", "Question", "Difference", "Metric", "A − B [95% CI]", "Won / lost / tied"]
+    head = ["ID", "Question", "Difference", "Metric", "A - B [95% CI]", "Won / lost / tied"]
     if with_p:
         head += ["p (one-sided)", "Holm p"]
     return table(head, rows, right=(4,))
@@ -453,7 +508,10 @@ def comparison_table(diffs: Iterable[Difference], with_p: bool = False) -> str:
 def main_rows(size: int, names: str) -> list[str]:
     secondary = SECONDARY_PICKS[(size, names)]
     out = [PRIMARY_PICKS[(size, names)], secondary]
-    out += [f"u{size}-{names}-{m}" for m in ("random", "name-match", "bm25f", "hybrid-rrf", "scripted-search")]
+    out += [
+        f"u{size}-{names}-{m}"
+        for m in ("random", "name-match", "bm25f", "hybrid-rrf", "scripted-search")
+    ]
     budget = CELLS[secondary].budget
     if budget:
         out.append(f"u{size}-{names}-scripted-open{budget}")
@@ -469,7 +527,7 @@ def main_table(report: Report, summaries: Mapping[str, CellSummary]) -> str:
             for name in main_rows(size, names):
                 s = summaries.get(name)
                 if s is None or not s.result.per_case:
-                    rows.append([f"`{name}`", CELLS[name].role, *["–"] * 7])
+                    rows.append([f"`{name}`", CELLS[name].role, *["—"] * 7])
                     continue
                 g, costs = s.groups["all"], cost_means(s.result)
                 rows.append(
@@ -485,12 +543,28 @@ def main_table(report: Report, summaries: Mapping[str, CellSummary]) -> str:
                         num(costs.get("tokens"), 0),
                     ]
                 )
-            parts.append(f"**U{size}, {names} names**\n\n" + table(
-                ["Cell", "Role", "CR@10", "CR@20", "Hit@10", "RequiredRecall@10", "Median LastRequiredRank", "$ per case", "Tokens per case"],
-                rows,
-                right=(2, 3, 4, 5, 6, 7, 8),
-            ))
-    note = "LastRequiredRank is censored at 101 and summarised by its median over pass-pooled per-case values."
+            parts.append(
+                f"**U{size}, {names} names**\n\n"
+                + table(
+                    [
+                        "Cell",
+                        "Role",
+                        "CR@10",
+                        "CR@20",
+                        "Hit@10",
+                        "RequiredRecall@10",
+                        "Median LastRequiredRank",
+                        "$ per case",
+                        "Tokens per case",
+                    ],
+                    rows,
+                    right=(2, 3, 4, 5, 6, 7, 8),
+                )
+            )
+    note = (
+        "LastRequiredRank is censored at 101 "
+        "and summarised by its median over pass-pooled per-case values."
+    )
     return "\n".join(parts) + "\n" + note + "\n"
 
 
@@ -499,7 +573,7 @@ def cells_table(report: Report, summaries: Mapping[str, CellSummary], names: Ite
     for name in names:
         s = summaries[name]
         if not s.result.per_case:
-            rows.append([f"`{name}`", s.result.spec.role, 0, *["–"] * 6, "; ".join(s.result.notes)])
+            rows.append([f"`{name}`", s.result.spec.role, 0, *["—"] * 6, "; ".join(s.result.notes)])
             continue
         g = s.groups["all"]
         rows.append(
@@ -517,7 +591,18 @@ def cells_table(report: Report, summaries: Mapping[str, CellSummary], names: Ite
             ]
         )
     return table(
-        ["Cell", "Role", "Runs", "CR@10", "CR@20", "Hit@10", "RequiredRecall@10", "LastRequiredRank (mean)", "(median)", "Notes"],
+        [
+            "Cell",
+            "Role",
+            "Runs",
+            "CR@10",
+            "CR@20",
+            "Hit@10",
+            "RequiredRecall@10",
+            "LastRequiredRank (mean)",
+            "(median)",
+            "Notes",
+        ],
         rows,
         right=(2, 3, 4, 5, 6, 7, 8),
     )
@@ -526,12 +611,17 @@ def cells_table(report: Report, summaries: Mapping[str, CellSummary], names: Ite
 def gap_table(report: Report, summaries: Mapping[str, CellSummary]) -> str:
     gaps = gap(report.results, report.ecosystem)
     rows = [
-        [f"`{n}`", summaries[n].result.spec.role, iv(summaries[n].groups["all"]["Hit@10"]),
-         iv(summaries[n].groups["all"][PRIMARY]), iv(gaps[n], sign=True)]
+        [
+            f"`{n}`",
+            summaries[n].result.spec.role,
+            iv(summaries[n].groups["all"]["Hit@10"]),
+            iv(summaries[n].groups["all"][PRIMARY]),
+            iv(gaps[n], sign=True),
+        ]
         for n in cell_order(report.results)
         if n in gaps and summaries[n].result.spec.registered
     ]
-    return table(["Cell", "Role", "Hit@10", "CR@10", "Hit@10 − CR@10"], rows, right=(2, 3, 4))
+    return table(["Cell", "Role", "Hit@10", "CR@10", "Hit@10 - CR@10"], rows, right=(2, 3, 4))
 
 
 def pass_info(report: Report) -> dict[str, PassAudit]:
@@ -541,7 +631,7 @@ def pass_info(report: Report) -> dict[str, PassAudit]:
 def host_of(key: str, audit: PassAudit | None) -> str:
     env_host = (audit.run_env or {}).get("host") if audit else None
     registered = PASSES.get(key)
-    return env_host or (registered.host if registered else "") or "–"
+    return env_host or (registered.host if registered else "") or "—"
 
 
 def stability_table(report: Report) -> str:
@@ -550,15 +640,32 @@ def stability_table(report: Report) -> str:
     for metric in (PRIMARY, KEY_SECONDARY):
         for row in stability(report.results, report.ecosystem, metric):
             labels = [
-                f"{p}: {audits[p].commit if p in audits else '–'}, {host_of(p, audits.get(p))}" for p in row["passes"]
+                f"{p}: {audits[p].commit if p in audits else '—'}, {host_of(p, audits.get(p))}"
+                for p in row["passes"]
             ]
-            per_pass = [iv(x) for x in row["per_pass"]] + ["–"] * (2 - len(row["per_pass"]))
+            per_pass = [iv(x) for x in row["per_pass"]] + ["—"] * (2 - len(row["per_pass"]))
             rows.append(
-                [f"`{row['cell']}`", row["role"], metric, *per_pass[:2], iv(row["pooled"]),
-                 iv(row["p2_minus_p1"], sign=True), "<br>".join(labels)]
+                [
+                    f"`{row['cell']}`",
+                    row["role"],
+                    metric,
+                    *per_pass[:2],
+                    iv(row["pooled"]),
+                    iv(row["p2_minus_p1"], sign=True),
+                    "<br>".join(labels),
+                ]
             )
     return table(
-        ["Cell", "Role", "Metric", "Pass 1", "Pass 2", "Pooled", "Pass 2 − pass 1", "Commit and host"],
+        [
+            "Cell",
+            "Role",
+            "Metric",
+            "Pass 1",
+            "Pass 2",
+            "Pooled",
+            "Pass 2 - pass 1",
+            "Commit and host",
+        ],
         rows,
         right=(3, 4, 5, 6),
     )
@@ -592,14 +699,27 @@ def cost_table(report: Report, summaries: Mapping[str, CellSummary]) -> str:
                 num(costs.get("median_seconds"), 0),
                 num(costs.get("fetch_requests"), 1),
                 num(None if "fetch_bytes" not in costs else costs["fetch_bytes"] / 1e6, 2),
-                num(usd / cr if cr else None) if usd else "–",
+                num(usd / cr if cr else None) if usd else "—",
             ]
         )
-    return table(
-        ["Cell", "Role", "$ per case", "Tokens per case", "Median s per case", "Fetch requests per case", "Fetch MB per case", "$ per complete set (CR@10)"],
-        rows,
-        right=(2, 3, 4, 5, 6, 7),
-    ) + "\n$ per complete set is the mean $ per case over the mean CR@10. Latency is the laptop runner's (§6, deviation 6).\n"
+    return (
+        table(
+            [
+                "Cell",
+                "Role",
+                "$ per case",
+                "Tokens per case",
+                "Median s per case",
+                "Fetch requests per case",
+                "Fetch MB per case",
+                "$ per complete set (CR@10)",
+            ],
+            rows,
+            right=(2, 3, 4, 5, 6, 7),
+        )
+        + "\n$ per complete set is the mean $ per case over the mean CR@10. "
+        "Latency is the laptop runner's (§6, deviation 6).\n"
+    )
 
 
 def passes_table(report: Report) -> str:
@@ -609,20 +729,32 @@ def passes_table(report: Report) -> str:
         rows.append(
             [
                 a.key,
-                registered.status if registered else "–",
-                registered.accepted_run if registered else "–",
+                registered.status if registered else "—",
+                registered.accepted_run if registered else "—",
                 a.commit,
                 host_of(a.key, a),
                 a.traces,
                 len(a.timeouts),
                 len(a.provider_errors),
-                len(a.cli_not_server) if CELLS[a.key.split("/", 1)[1]].tool else "–",
-                len(a.no_call) if CELLS[a.key.split("/", 1)[1]].tool else "–",
-                ", ".join(a.provider_errors) or "–",
+                len(a.cli_not_server) if CELLS[a.key.split("/", 1)[1]].tool else "—",
+                len(a.no_call) if CELLS[a.key.split("/", 1)[1]].tool else "—",
+                ", ".join(a.provider_errors) or "—",
             ]
         )
     out = table(
-        ["Pass", "Registry", "Accepted run (item 12)", "Commit", "Host", "Traces", "Timeout cases", "Provider-error cases", "Tool bound (a)", "Tool bound (b)", "Cases still erroring (§5)"],
+        [
+            "Pass",
+            "Registry",
+            "Accepted run (item 12)",
+            "Commit",
+            "Host",
+            "Traces",
+            "Timeout cases",
+            "Provider-error cases",
+            "Tool bound (a)",
+            "Tool bound (b)",
+            "Cases still erroring (§5)",
+        ],
         rows,
         right=(5, 6, 7, 8, 9),
     )
@@ -637,7 +769,10 @@ def per_ecosystem_table(report: Report) -> str:
         if d.comparison.family != "confirmatory":
             continue
         rows = [[e, n, f"{m:+.3f}"] for e, n, m in per_ecosystem(report, d)]
-        parts.append(f"**{d.comparison.id}** (`{d.comparison.a}` − `{d.comparison.b}`)\n\n" + table(["Ecosystem", "Cases", "Mean difference"], rows, right=(1, 2)))
+        parts.append(
+            f"**{d.comparison.id}** (`{d.comparison.a}` - `{d.comparison.b}`)\n\n"
+            + table(["Ecosystem", "Cases", "Mean difference"], rows, right=(1, 2))
+        )
     return "\n".join(parts)
 
 
@@ -648,12 +783,34 @@ def none_table(report: Report, summaries: Mapping[str, CellSummary]) -> str:
         if not s.result.per_case:
             continue
         a, n = s.groups["all"], s.groups["none"]
+        fs = s.first_search["none"]
         rows.append(
-            [f"`{name}`", s.result.spec.role, n[PRIMARY].n, iv(a[PRIMARY]), iv(n[PRIMARY]), iv(a[KEY_SECONDARY]),
-             iv(n[KEY_SECONDARY]), iv(n["Hit@10"]), iv(n[GIVEN])]
+            [
+                f"`{name}`",
+                s.result.spec.role,
+                n[PRIMARY].n,
+                iv(a[PRIMARY]),
+                iv(n[PRIMARY]),
+                iv(a[KEY_SECONDARY]),
+                iv(n[KEY_SECONDARY]),
+                iv(n["Hit@10"]),
+                iv(n[GIVEN]),
+                " / ".join(str(fs[k]) for k in FIRST_SEARCH) if s.result.spec.agent else "—",
+            ]
         )
     out = table(
-        ["Cell", "Role", "`none` cases", "CR@10 all", "CR@10 `none`", "CR@20 all", "CR@20 `none`", "Hit@10 `none`", "CR@|G| `none`"],
+        [
+            "Cell",
+            "Role",
+            "`none` cases",
+            "CR@10 all",
+            "CR@10 `none`",
+            "CR@20 all",
+            "CR@20 `none`",
+            "Hit@10 `none`",
+            "CR@|G| `none`",
+            "First search `none`: named / not named / none",
+        ],
         rows,
         right=(2, 3, 4, 5, 6, 7, 8),
     )
@@ -666,7 +823,7 @@ def none_table(report: Report, summaries: Mapping[str, CellSummary]) -> str:
         d = compare(c, report.results, report.ecosystem, ids=ids) if ids else None
         if d is not None:
             within.append(d)
-    out += "\nH1–H3 within the `none` group (no p-values):\n\n" + comparison_table(within)
+    out += "\nH1-H3 within the `none` group (no p-values):\n\n" + comparison_table(within)
     out += "\nEvery metric of item 17 for this group is in `cells.csv` (`group` = `none`).\n"
     return out
 
@@ -676,9 +833,14 @@ def owner_tables(report: Report, summaries: Mapping[str, CellSummary]) -> str:
         [f"U{r['size']}", r["names"], r["group"], iv(r["random"]), iv(r["bm25f"])]
         for r in reference_rows(report)
     ]
-    out = "Owner-given references per size and name condition: (i) O first in a uniformly random order, " \
-          "the exact expected CR@10; (ii) `bm25f` at L4 restricted to O.\n\n"
-    out += table(["Size", "Names", "Cases", "(i) random order", "(ii) `bm25f` within O"], refs, right=(3, 4))
+    out = (
+        "Owner-given references per size and name condition: "
+        "(i) O first in a uniformly random order, the exact expected CR@10; "
+        "(ii) `bm25f` at L4 restricted to O.\n\n"
+    )
+    out += table(
+        ["Size", "Names", "Group", "(i) random order", "(ii) `bm25f` within O"], refs, right=(3, 4)
+    )
     rows = []
     for name in cell_order(report.results):
         s = summaries[name]
@@ -686,15 +848,33 @@ def owner_tables(report: Report, summaries: Mapping[str, CellSummary]) -> str:
             continue
         g = s.groups["all"]
         fs = s.first_search["all"]
-        searches = " / ".join(str(fs[k]) for k in FIRST_SEARCH) if s.result.spec.agent else "–"
+        searches = " / ".join(str(fs[k]) for k in FIRST_SEARCH) if s.result.spec.agent else "—"
         rows.append(
-            [f"`{name}`", s.result.spec.role, iv(g[PRIMARY]), iv(g[f"{OWNER}{PRIMARY}"]),
-             iv(g[f"{OWNER}{KEY_SECONDARY}"]), iv(g[f"{OWNER}{GIVEN}"]), searches]
+            [
+                f"`{name}`",
+                s.result.spec.role,
+                iv(g[PRIMARY]),
+                iv(g[f"{OWNER}{PRIMARY}"]),
+                iv(g[f"{OWNER}{KEY_SECONDARY}"]),
+                iv(g[f"{OWNER}{GIVEN}"]),
+                searches,
+            ]
         )
-    out += "\nWithin-owner rescoring (each ranking restricted to O) and, for agent cells, the first search " \
-           "over runs (case × pass): names a target owner / doesn't / no grep, glob or `search_repos` call.\n\n"
+    out += (
+        "\nWithin-owner rescoring (each ranking restricted to O) and, for agent cells, "
+        "the first search over runs (one per case and pass): names a target owner / doesn't / "
+        "no grep, glob or `search_repos` call.\n\n"
+    )
     out += table(
-        ["Cell", "Role", "CR@10", "Within O: CR@10", "Within O: CR@20", "Within O: CR@|G|", "First search named / not named / none"],
+        [
+            "Cell",
+            "Role",
+            "CR@10",
+            "Within O: CR@10",
+            "Within O: CR@20",
+            "Within O: CR@|G|",
+            "First search named / not named / none",
+        ],
         rows,
         right=(2, 3, 4, 5),
     )
@@ -709,16 +889,34 @@ def set_quality_table(report: Report, summaries: Mapping[str, CellSummary]) -> s
             continue
         g, above = s.groups["all"], s.above_last["all"]
         median = "censored" if above.get("median_censored") else num(above["median"], 1)
-        fill = [num(g[k].mean, 2) if k in g else "–" for k in TOP10_KEYS]
-        rows.append([f"`{name}`", s.result.spec.role, *(iv(g[m]) for m in SET_QUALITY), median, above["censored"], *fill])
+        fill = [num(g[k].mean, 2) if k in g else "—" for k in TOP10_KEYS]
+        rows.append(
+            [
+                f"`{name}`",
+                s.result.spec.role,
+                *(iv(g[m]) for m in SET_QUALITY),
+                median,
+                above["censored"],
+                *fill,
+            ]
+        )
     head = [
-        "Cell", "Role", "CR@|G|", "CR@3", "CR@5", "CR@10", "Median non-targets above last", "Censored",
-        *(k[len(TOP10):] for k in TOP10_KEYS),
+        "Cell",
+        "Role",
+        "CR@|G|",
+        "CR@3",
+        "CR@5",
+        "CR@10",
+        "Median non-targets above last",
+        "Censored",
+        *(k[len(TOP10) :] for k in TOP10_KEYS),
     ]
     return table(head, rows, right=tuple(range(2, len(head)))) + (
-        "\nThe last seven columns are the mean count per case among the first 10 ranks: every non-target, then by "
-        "layer (WideSWE context, same-owner layer, frame sample, anything else) and by owner (a target owner or not). "
-        "A case is censored when a target ranks below 100; a pass-pooled case is censored when either pass is.\n"
+        "\nThe last seven columns are the mean count per case among the first 10 ranks: "
+        "every non-target, then by layer (WideSWE context, same-owner layer, frame sample, "
+        "anything else) and by owner (a target owner or not). "
+        "A case is censored when a target ranks below 100; "
+        "a pass-pooled case is censored when either pass is.\n"
     )
 
 
@@ -727,10 +925,26 @@ def memory_table(report: Report) -> str:
     out = "\n".join(f"- {n}" for n in notes) + "\n\n"
     if rows:
         out += table(
-            ["Cell", "Role", "CR@10 before", "CR@10 after", "After − before", "CR@20 before", "CR@20 after", "After − before"],
             [
-                [f"`{r['cell']}`", r["role"],
-                 *(iv(r[f"{m}:{p}"], sign=p == "after-before") for m in (PRIMARY, KEY_SECONDARY) for p in ("before", "after", "after-before"))]
+                "Cell",
+                "Role",
+                "CR@10 before",
+                "CR@10 after",
+                "After - before",
+                "CR@20 before",
+                "CR@20 after",
+                "After - before",
+            ],
+            [
+                [
+                    f"`{r['cell']}`",
+                    r["role"],
+                    *(
+                        iv(r[f"{m}:{p}"], sign=p == "after-before")
+                        for m in (PRIMARY, KEY_SECONDARY)
+                        for p in ("before", "after", "after-before")
+                    ),
+                ]
                 for r in rows
             ],
             right=(2, 3, 4, 5, 6, 7),
@@ -743,8 +957,16 @@ def reviewed_table(report: Report) -> str:
     if not rows:
         return "No reviewed labels in the inputs; not computed.\n"
     out = table(
-        ["Cell", "CR@10, WideSWE labels", "CR@10, reviewed labels", "Reviewed − WideSWE"],
-        [[f"`{r['cell']}`", iv(r["wideswe"]), iv(r["reviewed"]), iv(r["reviewed-wideswe"], sign=True)] for r in rows],
+        ["Cell", "CR@10, WideSWE labels", "CR@10, reviewed labels", "Reviewed - WideSWE"],
+        [
+            [
+                f"`{r['cell']}`",
+                iv(r["wideswe"]),
+                iv(r["reviewed"]),
+                iv(r["reviewed-wideswe"], sign=True),
+            ]
+            for r in rows
+        ],
         right=(1, 2, 3),
     )
     key = f"{REVIEWED}{PRIMARY}"
@@ -752,11 +974,12 @@ def reviewed_table(report: Report) -> str:
     again = [
         d
         for c in CONFIRMATORY
-        if c.a in reviewed and c.b in reviewed
+        if c.a in reviewed
+        and c.b in reviewed
         and (d := compare(c, report.results, report.ecosystem, metric=key)) is not None
     ]
     if again:
-        out += "\nH1–H3 on reviewed labels (no p-values):\n\n" + comparison_table(again)
+        out += "\nH1-H3 on reviewed labels (no p-values):\n\n" + comparison_table(again)
     return out
 
 
@@ -767,37 +990,93 @@ def misses_table(report: Report) -> str:
         if not r.per_case:
             continue
         m = miss_summary(r)
-        rows.append([f"`{name}`", r.spec.role, m["runs"], m["missed"], m["a target unranked"], m["a target below 100"],
-                     m["all in top 20"], m.get("a target outside the agent's list", "–"),
-                     m.get("errored or timed out", "–"), m.get("turn budget", "–")])
-    return table(
-        ["Cell", "Role", "Runs", "Missed CR@10", "A target unranked", "A target below 100", "All targets in top 20",
-         "A target outside the agent's own list", "Errored or timed out", "Turn budget"],
-        rows,
-        right=tuple(range(2, 10)),
-    ) + "\nOne row per run (case × pass or draw) in `misses.csv`, with each target's rank.\n"
+        rows.append(
+            [
+                f"`{name}`",
+                r.spec.role,
+                m["runs"],
+                m["missed"],
+                m["a target unranked"],
+                m["a target below 100"],
+                m["all in top 20"],
+                m.get("a target outside the agent's list", "—"),
+                m.get("errored or timed out", "—"),
+                m.get("turn budget", "—"),
+            ]
+        )
+    return (
+        table(
+            [
+                "Cell",
+                "Role",
+                "Runs",
+                "Missed CR@10",
+                "A target unranked",
+                "A target below 100",
+                "All targets in top 20",
+                "A target outside the agent's own list",
+                "Errored or timed out",
+                "Turn budget",
+            ],
+            rows,
+            right=tuple(range(2, 10)),
+        )
+        + "\nOne row per run (a case's pass or draw) in `misses.csv`, with each target's rank.\n"
+    )
 
 
 def s1_section(report: Report) -> str:
     s1 = report.s1
     if s1 is None:
-        return "S1 is off (the default). `--s1` scores the five concurrency-withdrawn passes as written in place of their reruns.\n"
+        return (
+            "S1 is off (the default). `--s1` scores the five concurrency-withdrawn passes "
+            "as written in place of their reruns.\n"
+        )
     rows = [
-        [a.key, a.commit, a.traces, len(a.timeouts), len(a.provider_errors),
-         "yes" if a.key in S1_TOOL_BROKEN else "", "; ".join(a.problems) or "–"]
+        [
+            a.key,
+            a.commit,
+            a.traces,
+            len(a.timeouts),
+            len(a.provider_errors),
+            "yes" if a.key in S1_TOOL_BROKEN else "",
+            "; ".join(a.problems) or "—",
+        ]
         for a in s1["audits"]
     ]
     out = (
-        "**Sensitivity analysis S1, not registered.** The five passes withdrawn under entry 7's concurrency rule "
-        "(addendum item 18), scored as written in place of their reruns; errored and timed-out cases count as written. "
+        "**Sensitivity analysis S1, not registered.** "
+        "The five passes withdrawn under entry 7's concurrency rule (addendum item 18), "
+        "scored as written in place of their reruns; "
+        "errored and timed-out cases count as written. "
         "Everything else is as registered.\n\n"
     )
-    out += table(["Withdrawn pass", "Commit", "Traces", "Timeout cases", "Provider-error cases", "Tool never reached its server (†)", "Bounds it fails"], rows, right=(2, 3, 4))
-    out += "\nH1–H3 under S1:\n\n" + comparison_table(s1["diffs"], with_p=True)
+    out += table(
+        [
+            "Withdrawn pass",
+            "Commit",
+            "Traces",
+            "Timeout cases",
+            "Provider-error cases",
+            "Tool never reached its server (†)",
+            "Bounds it fails",
+        ],
+        rows,
+        right=(2, 3, 4),
+    )
+    out += "\nH1-H3 under S1:\n\n" + comparison_table(s1["diffs"], with_p=True)
     return out
 
 
 # Figures ------------------------------------------------------------------------------
+
+
+def svg_open(width: float, height: float) -> str:
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        'font-family="sans-serif" font-size="11">\n'
+        f'<rect width="{width}" height="{height}" fill="white"/>'
+    )
 
 
 def forest_svg(report: Report) -> str:
@@ -812,23 +1091,37 @@ def forest_svg(report: Report) -> str:
         return left + (v + 1) / 2 * span
 
     out = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" font-family="sans-serif" font-size="11">',
-        f'<rect width="{width}" height="{height}" fill="white"/>',
-        f'<text x="{left}" y="20" font-size="13">Confirmatory differences in CR@10 (A − B), 95% ecosystem-bootstrap intervals</text>',
-        f'<line x1="{x(0)}" x2="{x(0)}" y1="{top - 10}" y2="{height - 40}" stroke="#999" stroke-dasharray="3,3"/>',
+        svg_open(width, height),
+        f'<text x="{left}" y="20" font-size="13">'
+        "Confirmatory differences in CR@10 (A - B), 95% ecosystem-bootstrap intervals</text>",
+        f'<line x1="{x(0)}" x2="{x(0)}" y1="{top - 10}" y2="{height - 40}" '
+        'stroke="#999" stroke-dasharray="3,3"/>',
     ]
     for v in (-1, -0.5, 0, 0.5, 1):
         out.append(f'<text x="{x(v)}" y="{height - 24}" text-anchor="middle">{v:+.1f}</text>')
     for k, d in enumerate(rows):
         y = top + k * row_h + row_h / 2
-        out.append(f'<text x="{left - 10}" y="{y + 4}" text-anchor="end">{d.comparison.id}: {d.won} won, {d.lost} lost</text>')
+        out.append(
+            f'<text x="{left - 10}" y="{y + 4}" text-anchor="end">'
+            f"{d.comparison.id}: {d.won} won, {d.lost} lost</text>"
+        )
         for _, n, m in per_ecosystem(report, d):
-            out.append(f'<circle cx="{x(m):.1f}" cy="{y + 12:.1f}" r="{1.5 + n ** 0.5:.1f}" fill="#aaa" fill-opacity="0.5"/>')
+            out.append(
+                f'<circle cx="{x(m):.1f}" cy="{y + 12:.1f}" r="{1.5 + n**0.5:.1f}" '
+                'fill="#aaa" fill-opacity="0.5"/>'
+            )
         i = d.interval
         if not math.isnan(i.low):
-            out.append(f'<line x1="{x(i.low):.1f}" x2="{x(i.high):.1f}" y1="{y:.1f}" y2="{y:.1f}" stroke="{COLORS[0]}" stroke-width="2"/>')
+            out.append(
+                f'<line x1="{x(i.low):.1f}" x2="{x(i.high):.1f}" y1="{y:.1f}" y2="{y:.1f}" '
+                f'stroke="{COLORS[0]}" stroke-width="2"/>'
+            )
         out.append(f'<circle cx="{x(i.mean):.1f}" cy="{y:.1f}" r="4" fill="{COLORS[0]}"/>')
-    out.append(f'<text x="{left}" y="{height - 6}">n = {len(report.ecosystem)} cases in {len(set(report.ecosystem.values()))} ecosystems; grey dots: per-ecosystem mean differences</text>')
+    ecosystems = len(set(report.ecosystem.values()))
+    out.append(
+        f'<text x="{left}" y="{height - 6}">n = {len(report.ecosystem)} cases in {ecosystems} '
+        "ecosystems; grey dots: per-ecosystem mean differences</text>"
+    )
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -839,9 +1132,9 @@ def hit_cr_svg(summaries: Mapping[str, CellSummary]) -> str:
     panel_w = (width - 2 * pad - gap_w) / 2
     plot_h = height - 2 * pad
     out = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" font-family="sans-serif" font-size="11">',
-        f'<rect width="{width}" height="{height}" fill="white"/>',
-        f'<text x="{pad}" y="20" font-size="13">Hit@10 (dashed) against CR@10 (solid) by universe size, static methods</text>',
+        svg_open(width, height),
+        f'<text x="{pad}" y="20" font-size="13">'
+        "Hit@10 (dashed) against CR@10 (solid) by universe size, static methods</text>",
     ]
     for p, names in enumerate(NAMES):
         x0 = pad + p * (panel_w + gap_w)
@@ -852,25 +1145,40 @@ def hit_cr_svg(summaries: Mapping[str, CellSummary]) -> str:
         def y(v: float) -> float:
             return pad + (1 - v) * plot_h
 
-        out.append(f'<rect x="{x0}" y="{pad}" width="{panel_w}" height="{plot_h}" fill="none" stroke="#999"/>')
-        out.append(f'<text x="{x0 + panel_w / 2}" y="{pad - 8}" text-anchor="middle">{names} names</text>')
+        out.append(
+            f'<rect x="{x0}" y="{pad}" width="{panel_w}" height="{plot_h}" '
+            'fill="none" stroke="#999"/>'
+        )
+        out.append(
+            f'<text x="{x0 + panel_w / 2}" y="{pad - 8}" text-anchor="middle">{names} names</text>'
+        )
         for q in (0, 0.25, 0.5, 0.75, 1):
             out.append(f'<text x="{x0 - 4}" y="{y(q) + 4}" text-anchor="end">{q:.2f}</text>')
         for k, size in enumerate(SIZES):
-            out.append(f'<text x="{x(k)}" y="{height - pad + 16}" text-anchor="middle">U{size}</text>')
+            out.append(
+                f'<text x="{x(k)}" y="{height - pad + 16}" text-anchor="middle">U{size}</text>'
+            )
+        labels = []
         for method, color in zip(FIGURE_STATIC, COLORS, strict=True):
             for metric, dash in ((PRIMARY, ""), ("Hit@10", ' stroke-dasharray="4,3"')):
                 points = [
                     (x(k), y(summaries[f"u{s}-{names}-{method}"].groups["all"][metric].mean))
                     for k, s in enumerate(SIZES)
-                    if f"u{s}-{names}-{method}" in summaries and summaries[f"u{s}-{names}-{method}"].result.per_case
+                    if f"u{s}-{names}-{method}" in summaries
+                    and summaries[f"u{s}-{names}-{method}"].result.per_case
                 ]
                 if len(points) > 1:
                     path = " ".join(f"{a:.1f},{b:.1f}" for a, b in points)
-                    out.append(f'<polyline points="{path}" fill="none" stroke="{color}" stroke-width="1.5"{dash}/>')
+                    out.append(
+                        f'<polyline points="{path}" fill="none" stroke="{color}" '
+                        f'stroke-width="1.5"{dash}/>'
+                    )
                 if points and metric == PRIMARY:
-                    a, b = points[-1]
-                    out.append(f'<text x="{a + 6:.1f}" y="{b + 4:.1f}" fill="{color}">{method}</text>')
+                    labels.append((points[-1][1] + 4, points[-1][0] + 6, method, color))
+        last = -math.inf
+        for b, a, method, color in sorted(labels):
+            last = max(b, last + 12)
+            out.append(f'<text x="{a:.1f}" y="{last:.1f}" fill="{color}">{method}</text>')
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -921,7 +1229,13 @@ def write_csv(path: Path, rows: Sequence[Mapping]) -> None:
 
 
 def spec_fields(spec: CellSpec) -> dict:
-    return {"cell": spec.name, "role": spec.role, "names": spec.names, "size": spec.size, "method": spec.method}
+    return {
+        "cell": spec.name,
+        "role": spec.role,
+        "names": spec.names,
+        "size": spec.size,
+        "method": spec.method,
+    }
 
 
 def write(report: Report, out: Path) -> None:
@@ -933,26 +1247,52 @@ def write(report: Report, out: Path) -> None:
     secondary = [d for d in report.diffs if d.comparison.family == "secondary"]
     sections = [
         ("passes", "Passes scored", passes_table(report)),
-        ("confirmatory", "Confirmatory: H1–H3 at U5000", confirmatory_table(report, summaries)),
+        ("confirmatory", "Confirmatory: H1-H3 at U5000", confirmatory_table(report, summaries)),
         ("main-results", "Main results by size and name condition", main_table(report, summaries)),
         ("cells", "Every registered cell", cells_table(report, summaries, registered)),
-        ("secondary", "Secondary: the comparisons at U1000 and U10000, on CR@20, and the mechanisms",
-         comparison_table([d for d in secondary if not d.comparison.id.startswith("M")])),
-        ("mechanisms", "Secondary: static mechanism replications at U5000",
-         comparison_table([d for d in secondary if d.comparison.id.startswith("M")])),
+        (
+            "secondary",
+            "Secondary: the comparisons at U1000 and U10000, on CR@20, and the mechanisms",
+            comparison_table([d for d in secondary if not d.comparison.id.startswith("M")]),
+        ),
+        (
+            "mechanisms",
+            "Secondary: static mechanism replications at U5000",
+            comparison_table([d for d in secondary if d.comparison.id.startswith("M")]),
+        ),
         ("hit-cr-gap", "Secondary: Hit@10 against CR@10", gap_table(report, summaries)),
         ("stability", "Secondary: agent stability", stability_table(report)),
-        ("cost", "Secondary: cost per case (frontier in `frontier/`)", cost_table(report, summaries)),
+        (
+            "cost",
+            "Secondary: cost per case (frontier in `frontier/`)",
+            cost_table(report, summaries),
+        ),
         ("per-ecosystem", "Confirmatory differences by ecosystem", per_ecosystem_table(report)),
-        ("n50", "Exploratory (entry 6): L5 N = 50 at U5000 and U10000, real names",
-         cells_table(report, summaries, exploratory)
-         + "\n" + comparison_table([d for d in report.diffs if d.comparison.family == "exploratory"])),
-        ("change-memory", f"Exploratory: change memory (last target merge before {MEMORY_CUTOFF})", memory_table(report)),
+        (
+            "n50",
+            "Exploratory (entry 6): L5 N = 50 at U5000 and U10000, real names",
+            cells_table(report, summaries, exploratory)
+            + "\n"
+            + comparison_table([d for d in report.diffs if d.comparison.family == "exploratory"]),
+        ),
+        (
+            "change-memory",
+            f"Exploratory: change memory (last target merge before {MEMORY_CUTOFF})",
+            memory_table(report),
+        ),
         ("reviewed", "Exploratory: reviewed labels against WideSWE labels", reviewed_table(report)),
         ("misses", "Exploratory: misses", misses_table(report)),
-        ("owner-shortcut", "Exploratory (item 17): the owner shortcut", owner_tables(report, summaries)),
+        (
+            "owner-shortcut",
+            "Exploratory (item 17): the owner shortcut",
+            owner_tables(report, summaries),
+        ),
         ("set-quality", "Exploratory (item 17): set quality", set_quality_table(report, summaries)),
-        ("none-group", "Exploratory (item 17): the `none` visibility group", none_table(report, summaries)),
+        (
+            "none-group",
+            "Exploratory (item 17): the `none` visibility group",
+            none_table(report, summaries),
+        ),
         ("s1", "Sensitivity S1 (off by default)", s1_section(report)),
     ]
     tables = out / "tables"
@@ -962,9 +1302,16 @@ def write(report: Report, out: Path) -> None:
         "",
         f"Generated by `scripts/test_report.py` at commit `{report.code['commit']}`"
         + (" with uncommitted changes" if report.code["dirty"] else "")
-        + f"; registration `{report.registered}` (`{REGISTRATION}`). "
+        + f"; registration `{report.registered}`"
+        + (
+            ""
+            if report.registered == REGISTRATION
+            else f" (the preregistration names `{REGISTRATION}`)"
+        )
+        + ". "
         f"{len(report.ecosystem)} test cases in {len(set(report.ecosystem.values()))} ecosystems. "
-        f"Every interval is a 95% percentile bootstrap over test ecosystems ({N_BOOT} resamples, seed {SEED}). "
+        "Every interval is a 95% percentile bootstrap over test ecosystems "
+        f"({N_BOOT} resamples, seed {SEED}). "
         "An agent cell's per-case values are means over its accepted passes (addendum item 15); "
         "`bm25f-deps-random`'s are means over its draws.",
         "",
@@ -987,27 +1334,74 @@ def write(report: Report, out: Path) -> None:
         r = s.result
         for group in GROUPS:
             for key, value in s.groups[group].items():
-                cell_rows.append({**spec_fields(r.spec), "group": group, "metric": key, "mean": value.mean,
-                                  "low": value.low, "high": value.high, "n": value.n})
+                cell_rows.append(
+                    {
+                        **spec_fields(r.spec),
+                        "group": group,
+                        "metric": key,
+                        "mean": value.mean,
+                        "low": value.low,
+                        "high": value.high,
+                        "n": value.n,
+                    }
+                )
             above = s.above_last[group]
-            cell_rows.append({**spec_fields(r.spec), "group": group, "metric": f"{ABOVE_LAST}:median",
-                              "mean": above["median"] if not above.get("median_censored") else math.inf,
-                              "n": above["n"], "censored": above["censored"]})
+            cell_rows.append(
+                {
+                    **spec_fields(r.spec),
+                    "group": group,
+                    "metric": f"{ABOVE_LAST}:median",
+                    "mean": above["median"] if not above.get("median_censored") else math.inf,
+                    "n": above["n"],
+                    "censored": above["censored"],
+                }
+            )
             for kind in FIRST_SEARCH:
                 if r.spec.agent:
-                    cell_rows.append({**spec_fields(r.spec), "group": group, "metric": f"first-search:{kind}",
-                                      "mean": float(s.first_search[group][kind])})
+                    cell_rows.append(
+                        {
+                            **spec_fields(r.spec),
+                            "group": group,
+                            "metric": f"first-search:{kind}",
+                            "mean": float(s.first_search[group][kind]),
+                        }
+                    )
         visibility = report.cases[r.spec.names].visibility
         for case_id, values in r.per_case.items():
-            case_rows.append({"cell": name, "case_id": case_id, "ecosystem": report.ecosystem[case_id],
-                              "visibility": visibility[case_id], **values, **{f"cost:{k}": v for k, v in r.costs.get(case_id, {}).items()}})
+            case_rows.append(
+                {
+                    "cell": name,
+                    "case_id": case_id,
+                    "ecosystem": report.ecosystem[case_id],
+                    "visibility": visibility[case_id],
+                    **values,
+                    **{f"cost:{k}": v for k, v in r.costs.get(case_id, {}).items()},
+                }
+            )
         for label, part in zip(r.sources, r.per_source, strict=True):
             if r.spec.agent:
                 for case_id, values in part.items():
-                    pass_rows.append({"cell": name, "pass": label, "case_id": case_id, **{m: values[m] for m in METRICS}})
-        search_rows += [{"cell": name, "pass": p, "case_id": c, "first_search": k} for c, p, k in r.first_search]
-        miss_rows += [{"cell": name, "ecosystem": report.ecosystem[m["case_id"]],
-                       "visibility": visibility[m["case_id"]], **m} for m in r.misses]
+                    pass_rows.append(
+                        {
+                            "cell": name,
+                            "pass": label,
+                            "case_id": case_id,
+                            **{m: values[m] for m in METRICS},
+                        }
+                    )
+        search_rows += [
+            {"cell": name, "pass": p, "case_id": c, "visibility": visibility[c], "first_search": k}
+            for c, p, k in r.first_search
+        ]
+        miss_rows += [
+            {
+                "cell": name,
+                "ecosystem": report.ecosystem[m["case_id"]],
+                "visibility": visibility[m["case_id"]],
+                **m,
+            }
+            for m in r.misses
+        ]
     write_csv(out / "cells.csv", cell_rows)
     write_csv(out / "per_case.csv", case_rows)
     write_csv(out / "per_pass.csv", pass_rows)
@@ -1049,12 +1443,17 @@ def write(report: Report, out: Path) -> None:
                 "notes": summaries[n].result.notes,
                 "groups": {
                     g: {k: interval_record(v) for k, v in summaries[n].groups[g].items()}
-                    | {"n": len(group_ids(report, summaries[n].result, g)), f"{ABOVE_LAST}:median": summaries[n].above_last[g]}
+                    | {
+                        "n": len(group_ids(report, summaries[n].result, g)),
+                        f"{ABOVE_LAST}:median": summaries[n].above_last[g],
+                    }
                     for g in GROUPS
                 },
                 "first_search": {g: dict(summaries[n].first_search[g]) for g in GROUPS},
                 "costs": cost_means(summaries[n].result),
-                "misses": miss_summary(summaries[n].result) if summaries[n].result.per_case else None,
+                "misses": miss_summary(summaries[n].result)
+                if summaries[n].result.per_case
+                else None,
             }
             for n in order
         },

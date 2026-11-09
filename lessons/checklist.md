@@ -33,6 +33,7 @@ Read this before designing an experiment, and answer each line in a sentence or 
 - [ ] Write the rule for provider errors into the plan: rerun the case whole on its cell's commit before export, label it, and have the reader stop on an error row left in a current cell. ([why](measurement/rerun-cases-a-provider-error-cut-short-under-a-rule-fixed-before-the-runs.md))
 - [ ] Give the analysis a way to withdraw a run: a rule keyed on file and commit, with a reason, whose file is still audited. Use it before the rerun lands, so the two are never pooled, and rerun the whole cell, not only the cases that were hit. ([why](process/withdraw-a-contaminated-run-in-the-registry-before-its-rerun-lands.md))
 - [ ] If a frontier compares several costs, put a cost tolerance and floors in its rule, and plan to show what the 0% frontier adds. ([why](measurement/give-a-cost-frontier-over-several-dimensions-a-tolerance.md))
+- [ ] Before the test run, copy a few dev cases' complete raw outputs per method (event streams, traces, server logs, predictions, `run.env`) to the store, so later analyses can be tested on real formats while the test runs stay blind. ([why](measurement/keep-dev-copies-of-every-raw-log-an-analysis-may-parse.md))
 
 ## Infrastructure
 

@@ -1,6 +1,6 @@
 """The frozen plan for scoring the held-out test run: cells, comparisons, passes and bounds.
 
-Everything here comes from PREREGISTRATION.md §3–§4, entries 6 and 7, and the addendum to
+Everything here comes from PREREGISTRATION.md §3 and §4, entries 6 and 7, and the addendum to
 entry 7. Where they leave a choice open, the value used is in ``CHOICES``, and
 TEST_ANALYSIS.md lists each with its alternatives. Nothing here reads a file.
 """
@@ -110,7 +110,7 @@ SECONDARY_PICKS = {
     (10000, "real"): "u10000-real-l5-n20",
     (10000, "hidden"): "u10000-hidden-l5-n20",
 }
-# Entry 6, item 14: exploratory, outside H1–H3 and §4's secondary analyses.
+# Entry 6, item 14: exploratory, outside H1-H3 and §4's secondary analyses.
 EXPLORATORY_AGENT = ("u5000-real-l5-n50", "u10000-real-l5-n50")
 
 OPEN_BUDGETS = (0, 5, 10, 20, 50)
@@ -136,12 +136,7 @@ NAMES_ONLY = ("random", "name-match")
 
 def static_cell(size: int, names: str, ranker: str, role: str = "baseline") -> CellSpec:
     budget = re.fullmatch(r"(?:bm25f|scripted)-open(\d+)", ranker)
-    if budget:
-        level = "L0"
-    elif ranker in NAMES_ONLY:
-        level = "L0"
-    else:
-        level = "L4"
+    level = "L0" if budget or ranker in NAMES_ONLY else "L4"
     draws = DEPS_RANDOM_DRAWS if ranker == "bm25f-deps-random" else 1
     return CellSpec(
         f"u{size}-{names}-{ranker}",
@@ -202,7 +197,11 @@ def _hypotheses(size: int, metric: str, family: str, tag: str) -> list[Compariso
             if h == "H1":
                 a, b, q = pick, f"u{size}-{names}-bm25f", "primary pick vs bm25f at L4"
             elif h == "H2":
-                a, b, q = pick, f"u{size}-{names}-scripted-search", "primary pick vs scripted-search"
+                a, b, q = (
+                    pick,
+                    f"u{size}-{names}-scripted-search",
+                    "primary pick vs scripted-search",
+                )
             else:
                 n = CELLS[l5].budget
                 a, b, q = l5, f"u{size}-{names}-scripted-open{n}", f"agent L5 vs scripted-open{n}"
@@ -227,7 +226,9 @@ SECONDARY = (
         for c in _hypotheses(size, KEY_SECONDARY, "secondary", f"@U{size}:CR@20")
     ),
     *(
-        Comparison(f"{m}-{names}", f"u5000-{names}-{a}", f"u5000-{names}-{b}", PRIMARY, "secondary", q)
+        Comparison(
+            f"{m}-{names}", f"u5000-{names}-{a}", f"u5000-{names}-{b}", PRIMARY, "secondary", q
+        )
         for m, a, b, q in MECHANISMS
         for names in NAMES
     ),
@@ -280,7 +281,7 @@ ITEM_12 = """
 | p2/u10000-real-l5-n20 | reruns-a, 11-05 08:07 | MBP | 1 | 0 | concurrency† | 1 |
 | p2/u10000-hidden-c2-bm25f-L4 | reruns-g, 11-08 03:41 | mbp-1 | 1 (3 attempts, item 9) | 1 | invalid-key; tool† (reruns-c); timeouts-g (list 12a) | 2 |
 | p2/u10000-real-c2-bm25f-L4 | list 10, 11-07 07:39 | mbp-1 | 0 | 1 | invalid-key; timeouts† (reruns-e); timeouts-f (reruns-f) | 2 |
-"""
+"""  # noqa: E501, RUF001
 ITEM_14_LIST = "n50-real-2026-11-08.txt"
 ITEM_14_SHA256 = "39ec2e29af535a0c8b558450c611a03347a3585d9fdb25cc016d3ec83d6839af"
 
@@ -338,7 +339,9 @@ def _passes() -> dict[str, RegisteredPass]:
     passes = _item_12()
     for cell in EXPLORATORY_AGENT:
         for number in (1, 2):
-            p = RegisteredPass(number, cell, "exploratory", RERUN_COMMIT, f"item 14, {ITEM_14_LIST}")
+            p = RegisteredPass(
+                number, cell, "exploratory", RERUN_COMMIT, f"item 14, {ITEM_14_LIST}"
+            )
             passes[p.key] = p
     return passes
 

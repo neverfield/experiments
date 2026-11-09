@@ -37,11 +37,15 @@ from repo_discovery.split import check_registered
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("inputs", nargs="?", type=Path, metavar="INPUTS.json")
-    p.add_argument("--registered", metavar="COMMIT", help="the commit that registered the preregistration")
+    p.add_argument(
+        "--registered", metavar="COMMIT", help="the commit that registered the preregistration"
+    )
     p.add_argument("--out", type=Path, help="report directory; with --dry-run, a JSON file")
     p.add_argument("--allow-pending", action="store_true", help="score without the pending passes")
     p.add_argument("--s1", action="store_true", help="add sensitivity analysis S1 (off by default)")
-    p.add_argument("--allow-dirty", action="store_true", help="run on code that differs from its commit")
+    p.add_argument(
+        "--allow-dirty", action="store_true", help="run on code that differs from its commit"
+    )
     p.add_argument("--dry-run", type=Path, action="append", metavar="RUNLIST")
     p.add_argument("--runs-root", type=Path, help="with --dry-run and no INPUTS.json")
     args = p.parse_args(argv)

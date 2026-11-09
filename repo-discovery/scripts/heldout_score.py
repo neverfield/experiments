@@ -78,8 +78,15 @@ LAYERS = {
 }
 TOP10_KEYS = tuple(
     f"{TOP10}{k}"
-    for k in ("non-targets", "wideswe", "same_owner", "frame", "other-layer", "target-owner",
-              "other-owner")
+    for k in (
+        "non-targets",
+        "wideswe",
+        "same_owner",
+        "frame",
+        "other-layer",
+        "target-owner",
+        "other-owner",
+    )
 )
 SEARCH_KINDS = ("grep", "ripgrep", "glob")
 OWNER_METRICS = (*METRICS, GIVEN)
@@ -246,9 +253,7 @@ def owner_reference(n_owner: int, n_gold: int) -> float:
 
 def case_universe(root: Path, case: Case) -> CaseUniverse:
     rows = raw_rows(resolve_universe(root, case.case_id))
-    layer = {
-        repo_key(r["repo"]): LAYERS.get((r["role"], r.get("source")), "other") for r in rows
-    }
+    layer = {repo_key(r["repo"]): LAYERS.get((r["role"], r.get("source")), "other") for r in rows}
     gold = {repo_key(g) for g in case.gold_repos}
     targets = {owner(g) for g in gold}
     owners = frozenset(k for k in layer if owner(k) in targets) | gold
@@ -386,17 +391,15 @@ def plan_passes(
     ``runs_root/test/`` is read; S1 swaps in its five passes from ``withdrawn-concurrency``."""
     if any(part.startswith("withdrawn-") for part in inputs.runs_root.resolve().parts):
         raise ScoringError(f"runs_root {inputs.runs_root} is a withdrawn area")
-    pending = [
-        k for k, p in PASSES.items() if p.status == "pending" and k not in inputs.accept
-    ]
+    unknown = sorted(set(inputs.accept) - {k for k, p in PASSES.items() if p.status == "pending"})
+    if unknown:
+        raise ScoringError(f"the inputs accept passes that aren't pending: {', '.join(unknown)}")
+    pending = [k for k, p in PASSES.items() if p.status == "pending" and k not in inputs.accept]
     if pending and not allow_pending:
         raise ScoringError(
             f"{len(pending)} registered passes are pending (item 13): {', '.join(pending)}. "
             "Accept them in the inputs once they pass their bound, or pass --allow-pending."
         )
-    unknown = sorted(set(inputs.accept) - {k for k, p in PASSES.items() if p.status == "pending"})
-    if unknown:
-        raise ScoringError(f"the inputs accept passes that aren't pending: {', '.join(unknown)}")
     notes, sources = [], {name: [] for name in AGENT_CELLS}
     for key, registered in PASSES.items():
         if key in pending:
@@ -492,7 +495,9 @@ def _rankings(source: Source, spec: CellSpec, case_set: CaseSet) -> dict[str, li
     out = {}
     for p in read_predictions(source.predictions):
         if p.case_id not in case_set.cases:
-            raise ScoringError(f"{source.label}: {p.case_id} isn't a {case_set.names}-name test case")
+            raise ScoringError(
+                f"{source.label}: {p.case_id} isn't a {case_set.names}-name test case"
+            )
         if p.universe_size and p.universe_size != spec.size:
             raise ScoringError(f"{source.label}: universe size {p.universe_size}, not {spec.size}")
         out[p.case_id] = p.ranking
@@ -640,14 +645,16 @@ class Interval:
     def text(self, digits: int = 3, sign: bool = False) -> str:
         f = f"{{:{'+' if sign else ''}.{digits}f}}"
         if math.isnan(self.mean):
-            return "–"
+            return "—"
         return f"{f.format(self.mean)} [{f.format(self.low)}, {f.format(self.high)}]"
 
     def row(self, digits: int) -> list[float]:
         return [round(self.mean, digits), round(self.low, digits), round(self.high, digits)]
 
 
-def estimate(values: Mapping[str, float], ids: Sequence[str], ecosystem: Mapping[str, str]) -> Interval:
+def estimate(
+    values: Mapping[str, float], ids: Sequence[str], ecosystem: Mapping[str, str]
+) -> Interval:
     """The mean over ``ids`` with §4's interval: whole test ecosystems resampled."""
     if not ids:
         return Interval(math.nan, math.nan, math.nan, 0)
@@ -689,7 +696,9 @@ def compare(
     interval = estimate(diffs, ids, ecosystem)
     p = None
     if with_p:
-        reps = cluster_replicates([diffs[i] for i in ids], [ecosystem[i] for i in ids], N_BOOT, SEED)
+        reps = cluster_replicates(
+            [diffs[i] for i in ids], [ecosystem[i] for i in ids], N_BOOT, SEED
+        )
         p = float((reps <= 0).mean())
     d = np.array([diffs[i] for i in ids])
     return Difference(
@@ -708,7 +717,9 @@ def comparisons(
             skipped.append(f"{c.id}: {c.a} or {c.b} has no scored pass")
         else:
             rows.append(row)
-    confirmatory = {r.comparison.id: r.p_one_sided for r in rows if r.comparison.family == "confirmatory"}
+    confirmatory = {
+        r.comparison.id: r.p_one_sided for r in rows if r.comparison.family == "confirmatory"
+    }
     if len(confirmatory) != 6:
         skipped.append(f"Holm family has {len(confirmatory)} of 6 tests")
     adjusted = holm(confirmatory, ALPHA)  # type: ignore[arg-type]
@@ -742,7 +753,9 @@ def stability(
         }
         if len(r.per_source) == 2:
             p1, p2 = r.per_source
-            row["p2_minus_p1"] = estimate({i: p2[i][metric] - p1[i][metric] for i in ids}, ids, ecosystem)
+            row["p2_minus_p1"] = estimate(
+                {i: p2[i][metric] - p1[i][metric] for i in ids}, ids, ecosystem
+            )
         rows.append(row)
     return rows
 
@@ -765,22 +778,39 @@ def selection_cell(spec: CellSpec) -> selection.Cell:
     salt = "test" if spec.names == "hidden" else None
     base = {"size": spec.size, "names": spec.names, "salt": salt}
     if spec.method == "c1":
-        return selection.Cell.from_dict({**base, "method": "c1", "shape": "none", "level": spec.level})
+        return selection.Cell.from_dict(
+            {**base, "method": "c1", "shape": "none", "level": spec.level}
+        )
     if spec.method == "c2":
         return selection.Cell.from_dict(
             {**base, "method": "c2", "shape": spec.search, "level": "L4", "tool": TOOLS["c2"]}
         )
     if spec.method == "l5":
         return selection.Cell.from_dict(
-            {**base, "method": "l5", "shape": "none", "level": "L0", "budget": spec.budget, "opens": "L4"}
+            {
+                **base,
+                "method": "l5",
+                "shape": "none",
+                "level": "L0",
+                "budget": spec.budget,
+                "opens": "L4",
+            }
         )
     match = _OPEN.fullmatch(spec.method)
     if match:
         return selection.Cell.from_dict(
-            {**base, "method": "static-open", "shape": match[1], "level": "L0",
-             "budget": int(match[2]), "opens": "L4"}
+            {
+                **base,
+                "method": "static-open",
+                "shape": match[1],
+                "level": "L0",
+                "budget": int(match[2]),
+                "opens": "L4",
+            }
         )
-    return selection.Cell.from_dict({**base, "method": "static", "shape": spec.method, "level": spec.level})
+    return selection.Cell.from_dict(
+        {**base, "method": "static", "shape": spec.method, "level": spec.level}
+    )
 
 
 def frontier_entry(spec: CellSpec) -> dict:
