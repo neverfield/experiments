@@ -389,5 +389,7 @@ CHOICES = {
     "commit, or a rerun pass without a run.env, stops scoring",
     "required-inputs": "the reported run needs costs and merge_dates",
     "reviewed-labels": "computed only from adjudicated test labels; none are recorded",
+    "search-string": "a grep or glob call's non-path string arguments, less outputMode and "
+    "toolCallId (a deviation from item 17); '_' stays a token boundary",
     "rounding": f"{DIGITS} decimals in JSON and CSV, 3 in markdown",
 }

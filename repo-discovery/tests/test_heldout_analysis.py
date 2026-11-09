@@ -531,8 +531,56 @@ def test_first_search_reads_the_dev_event_layout(tmp_path: Path) -> None:
     assert first("acme", glob) == "not-named"
     assert first("acme", search) == "named"
     assert first("acme", read) == "none"
-    # Item 17's search string is every non-path string argument, outputMode included.
-    assert first("files", grep("billing", "files_with_matches")) == "named"
+
+
+def test_first_search_ignores_output_mode_and_tool_call_id() -> None:
+    grep = {
+        "grepToolCall": {
+            "args": {
+                "pattern": "ledger",
+                "path": "/u/acme",
+                "glob": "*.md",
+                "outputMode": "files_with_matches",
+                "caseInsensitive": False,
+                "toolCallId": "toolu_01",
+            }
+        },
+        "toolCallId": "toolu_01",
+    }
+    assert score.search_string(grep) == "ledger *.md"
+    for owner in ("files", "matches", "toolu"):
+        assert not score.names_owner(score.search_string(grep) or "", [owner])
+    in_glob = {"grepToolCall": {"args": {"pattern": "x", "glob": "acme/*", "outputMode": "count"}}}
+    assert score.names_owner(score.search_string(in_glob) or "", ["acme"])
+    glob = {"globToolCall": {"args": {"globPattern": "**/acme*", "targetDirectory": "/u"}}}
+    assert score.search_string(glob) == "**/acme*"
+
+
+def test_first_search_keeps_underscore_as_a_token_boundary(tmp_path: Path) -> None:
+    path = tmp_path / "e.jsonl"
+    call = {"grepToolCall": {"args": {"pattern": "acme_core", "outputMode": "content"}}}
+    path.write_text(json.dumps({"type": "tool_call", "subtype": "started", "tool_call": call}))
+    assert score.first_search(path, ["acme"]) == "named"
+    assert score.names_owner("acme_core", ["acme"]) and score.names_owner("core_acme", ["acme"])
+
+
+def test_first_search_counts_a_call_with_no_search_text(tmp_path: Path) -> None:
+    empty = {
+        "grepToolCall": {
+            "args": {"path": "/u/acme", "outputMode": "content", "toolCallId": "toolu_01"}
+        }
+    }
+    assert score.search_string(empty) == ""
+    assert score.search_string({"globToolCall": {"args": {"targetDirectory": "/u/acme"}}}) == ""
+    named = {"grepToolCall": {"args": {"pattern": "acme"}}}
+    path = tmp_path / "e.jsonl"
+    path.write_text(
+        "".join(
+            json.dumps({"type": "tool_call", "subtype": "started", "tool_call": c}) + "\n"
+            for c in (empty, named)
+        )
+    )
+    assert score.first_search(path, ["acme"]) == "not-named"
 
 
 def test_set_quality_and_top10_fill() -> None:

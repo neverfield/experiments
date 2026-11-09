@@ -89,6 +89,9 @@ TOP10_KEYS = tuple(
     )
 )
 SEARCH_KINDS = ("grep", "ripgrep", "glob")
+# Item 17 counts every non-path string argument; dropping these two is a deviation
+# (TEST_ANALYSIS.md, choice 4).
+NOT_SEARCH_TEXT = frozenset({"outputMode", "toolCallId"})
 OWNER_METRICS = (*METRICS, GIVEN)
 REVIEWED_METRICS = METRICS
 # Static rankers whose index the frontier names explicitly (as in the dev selection).
@@ -335,7 +338,8 @@ def search_string(tool_call: Mapping) -> str | None:
     args = tool_call[kind].get("args") or {}
     stem = kind[: -len("ToolCall")].lower()
     if stem in SEARCH_KINDS:
-        return " ".join(s for k, v in args.items() if k not in _PATH_ARGS for s in _strings(v))
+        skipped = _PATH_ARGS | NOT_SEARCH_TEXT
+        return " ".join(s for k, v in args.items() if k not in skipped for s in _strings(v))
     if stem == "mcp" and (
         args.get("toolName") == TOOLS["c2"] or str(args.get("name", "")).endswith(TOOLS["c2"])
     ):
