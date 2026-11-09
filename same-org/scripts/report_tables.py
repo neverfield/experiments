@@ -87,6 +87,20 @@ def main() -> None:
          "Sweep-like", "Not sweep-like", "Top target set share"], rows))
 
     rows = []
+    for size in (50, 100, 250, 500, 1000, 2000, 3000):
+        big = [o for o in orgs if an[o]["active_pool"] >= size]
+        xs = [an[o]["changes"]["explicit"] for o in big]
+        rows.append([f"{size:,}", ", ".join(big) or "–",
+                     round(sum(x["not_sweep_like"] for x in xs) * per_year),
+                     round(sum(x.get("not_sweep_pre_work", 0) for x in xs) * per_year),
+                     round(sum(x.get("not_sweep_t4plus", 0) for x in xs) * per_year)])
+    out.append("### Explicit-link changes that aren't sweep-like, a year, by pool size\n\nAn org's "
+               "changes can be scored at any pool size up to its active pool, by subsampling its "
+               "other repos.\n\n" + table(
+        ["Pool size", "Orgs with a pool this large", "Changes a year", "With a pre-work issue",
+         "4+ targets"], rows))
+
+    rows = []
     for o in orgs:
         m = an[o]["methods"]
         usable = (jload(mined / o / "case_summary.json") or {}).get("window_prs_usable") or 0

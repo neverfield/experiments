@@ -323,6 +323,10 @@ def main() -> None:
                 "prs_in_changes": sum(len(c["prs"]) for c in ch),
                 "sweep_like": round(sum(c["sweep_like"] for c in ch) / n, 3) if n else None,
                 "not_sweep_like": sum(not c["sweep_like"] for c in ch),
+                "not_sweep_pre_work": sum(not c["sweep_like"] and bool(c["pre_work_issue"])
+                                          for c in ch),
+                "not_sweep_t4plus": sum(not c["sweep_like"] and len(c["targets"]) >= 4
+                                        for c in ch),
             }
             co.update(score_requests(
                 [(c["pre_work_issue"], c["targets"]) for c in ch if c["pre_work_issue"]]))
