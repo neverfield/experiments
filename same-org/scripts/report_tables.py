@@ -2,7 +2,8 @@
 
     python3 scripts/report_tables.py --orgs microsoft apache k8s --mined ~/so/mined \
         --analysis ~/so/analysis.json --docs ~/so/docs --scores ~/so/review/scores.json \
-        --listing ~/so/listing-stats-8.json --months 3 > ~/so/tables.md
+        --listing ~/so/listing-stats-8.json --cochange ~/so/cochange.json --months 3 \
+        > ~/so/tables.md
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ def main() -> None:
     ap.add_argument("--docs")
     ap.add_argument("--scores")
     ap.add_argument("--listing")
+    ap.add_argument("--cochange")
     ap.add_argument("--months", type=float, default=3.0)
     a = ap.parse_args()
     mined = Path(a.mined).expanduser()
@@ -179,11 +181,25 @@ def main() -> None:
         sp, se = ms.get("spend", {}), es.get("spend", {})
         rows.append([o, ms.get("fetched"), sp.get("graphql_points", 0) + sp.get("cache_hits", 0),
                      ms.get("wall_s"), sp.get("waits_s"), es.get("targets"),
-                     se.get("graphql_points"), round(se.get("request_s", 0) + se.get("waits_s", 0)),
-                     es.get("timeline_truncated")])
-    out.append("### Mining cost\n\n" + table(
-        ["Org", "PRs", "Search pages", "Mine wall s", "Waits s", "Hub items", "Hub points",
-         "Hub s", "Timelines truncated"], rows))
+                     se.get("graphql_calls", 0) + se.get("cache_hits", 0),
+                     round(se.get("request_s", 0) + se.get("waits_s", 0)),
+                     "yes" if se.get("cache_hits", 0) else "no", es.get("timeline_truncated")])
+    out.append("### Mining cost\n\n"
+               "Hub calls count every run, because a rerun reads earlier runs' calls from the "
+               "cache. Hub seconds cover the last run only, summed over its workers.\n\n" + table(
+                   ["Org", "PRs", "Search pages", "Mine wall s", "Waits s", "Hub items",
+                    "Hub calls", "Hub s, last run", "Rerun", "Timelines truncated"], rows))
+
+    if a.cochange:
+        cc = json.loads(Path(a.cochange).expanduser().read_text())
+        rows = [[o, c["changes"], c["history_cases"], c["all_pairs_seen"], c["any_pair_seen"],
+                 c["seed_recall"], c["partners_p50"]]
+                for o, c in cc["orgs"].items() if o in orgs]
+        out.append(f"### Co-change history\n\n`{cc['combo']}` changes that aren't sweep-like "
+                   f"and opened on or after {cc['split']}, against the multi-repo cases of "
+                   "every method opened before it.\n\n" + table(
+                       ["Org", "Changes", "History cases", "All pairs seen", "Any pair seen",
+                        "Seed recall", "Partners p50"], rows))
 
     if a.scores:
         s = json.loads(Path(a.scores).expanduser().read_text())
@@ -216,6 +232,11 @@ def main() -> None:
                 for o, c in s["by_org"].items()]
         out.append("### Precision by org\n\n" + table(
             ["Org", "n", "Strict", "95% CI", "Lenient", "Same, not a sweep"], rows))
+        rows = [[k.split("|")[0], c["n"], c["strict"], c.get("same_not_sweep")]
+                for k, c in sorted(s.get("by_org_method", {}).items())
+                if k.endswith("|change-explicit")]
+        out.append("### Explicit-link changes by org (hand-check)\n\n" + table(
+            ["Org", "n", "Strict", "Same, not a sweep"], rows))
         for name, ag in (s.get("agreement") or {}).items():
             out.append(f"Agreement with `{name}`: n={ag['n']}, agree={ag.get('agree')}, "
                        f"kappa={ag.get('kappa')}, same-vs-rest agree={ag.get('agree_same_vs_rest')}")
