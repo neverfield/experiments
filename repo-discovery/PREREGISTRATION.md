@@ -425,20 +425,21 @@ Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendu
       - The 240 host files are audited blind and compared by digest with the reruns, for the record only. They're never scored, because no record shows which commit made them.
       - Entry 7 is the precedent: it withdrew three passes started from `45f673c` before it was pushed, because "§5 requires a pushed commit".
       - The rule rests on provenance only, so no audit or comparison result can change it.
-    - **How the reruns run.** `run-statics.sh` (sha256 `7217b3a4…7235`) refuses to start unless HEAD is `c4b458f`, the clone is clean, and `76882fe` is an ancestor. It also refuses unless every test universe it reads has the right size and fetch level, and no corpus it reads holds a `._*` file.
+    - **How the reruns run.** `run-statics.sh` (sha256 `7217b3a4fd18189bb7cc421c450f1ffe5b19deaa672e0add41e8528248767235`) refuses to start unless HEAD is `c4b458f`, the clone is clean, and `76882fe` is an ancestor. It also refuses unless every test universe it reads has the right size and fetch level, and no corpus it reads holds a `._*` file.
       - Each cell runs `repo-discovery run --split test --registered 76882fe`. The script prints counts only and scores nothing.
       - The reruns read the runner volume's corpus, which since entry 1's fix holds the host corpus's 1,871,832 files.
       - Run dates: [run dates, UTC].
-    - **The host files' record.** `audit-static.py` (sha256 `2ed4da9a…ee93d`) reads the files in code and prints only counts, digests and times, with no ranking or metric.
+    - **The host files' record.** `audit-static.py` (sha256 `2ed4da9a16b463ff15bf0be8af04c35cf5bcd4370ebc1c35aa4a1fa20baee93d`) reads the files in code and prints only counts, digests and times, with no ranking or metric.
       - Start times: [first and last start, UTC; files started before 06:45:38 UTC on 2026-11-01].
       - Audit: [files passing, of 240; log lines naming a metric].
+      - Shell history: [shell-history evaluate over runs/static: none / found].
       - Reproduction: [host files whose digest matches their rerun's, of 240].
       - If any host file started before registration, the registration's "no test case had been run, scored or inspected" gets a correction in its own dated item.
     - **`u50-real-hybrid-rrf-L0` completes a registered cell, so it isn't a deviation.** §6's deviation 1 registers the cell. The 2026-11-01 batch covered only the 20 × 5 × 2 grid and missed it, so it has no host file.
       - It's run with the other 240 cells at `c4b458f`, on the volume's real-name corpus restricted to L0 by `fetch_levels restrict`.
       - §5 is read per cell (item 16), and this item names the cell's commit.
     - **`merge_dates`.** It feeds §4's exploratory change-memory split. §4 gives that split from `scripts/model_cutoffs.py` as "Test has 25 cases before and 34 after", so the script ran before registration. But no `--out` file was kept, and scoring reads that file.
-      - It's built at `c4b458f` by `build-merge-dates.sh` (sha256 `de6fc55d…9535`) from the 2026-11-01 date cache.
+      - It's built at `c4b458f` by `build-merge-dates.sh` (sha256 `de6fc55d26da16733be5ead3a5104d01c892d50e17f5ddea084500683d889535`) from the 2026-11-01 date cache.
       - It reads case metadata, WideSWE's `repos.yaml` and the cache, and no prediction, trace or score. `model_cutoffs.py` and the modules it uses are unchanged from `5070bc0`, where it was first committed, to `c4b458f`.
       - The script copies the cache aside and compares checksums before and after. An unchanged checksum means every date came from the 2026-11-01 cache.
       - Built: [date, UTC]. Cache checksum: [unchanged or changed]. Test cases before and after the cutoff: [before / after; registered 25 / 34].
