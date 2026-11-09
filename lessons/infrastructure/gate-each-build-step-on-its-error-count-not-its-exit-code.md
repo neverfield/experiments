@@ -7,3 +7,5 @@
 **What it cost.** Watching the logs of a chain that runs for hours, and a manual pause. Had the error been missed, the restricted levels, the anonymized corpus and their embeddings would have needed rebuilding.
 
 **Next time.** A step that can partly fail should exit nonzero, or the chain should read its error count and run the top-up itself before going on. Check the counts at each step boundary: packets on disk against snapshots wanted, and zero rows without evidence.
+
+**Seen again:** same-org feasibility (store `internal/same-org-feasibility/handoff.md`, Lesson candidates; store `docs/same-org-feasibility.md`, Fetch cost). When the token died mid-run, a paginated org listing stopped at 400 of grafana's 525 repos and exited without an error. Nothing downstream flagged the listing as partial. GitHub search also returns at most 1,000 results per query and never says it truncated. So the census now checks each listing against the org's public repo count, and `mine_prs.py` splits each window until every piece is under 1,000. It records the expected count against the fetched count per org, and each mine is gated on that, not on its exit code.

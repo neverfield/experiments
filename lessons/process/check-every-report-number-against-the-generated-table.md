@@ -17,3 +17,11 @@ None changed a pick, but several misstated what had been measured.
 **Next time.** Write a report's numbers from the generated table, not from notes. Then check each one against the table in a separate pass, including counts, ranges and every "only", "all" or "never". Check that every hidden-name comparison shares a salt. Cite a PR only once it exists.
 
 **Seen again:** 2026-10-29, same report. Name-match at U50 read 0.53 when the table's `frontier.md` printed 0.52 (32 of 61 cases). The value had been rounded twice, from the four-decimal CSV (0.5246 to 0.525 to 0.53). The source-report cross-checks missed it, because the registry hadn't transcribed the pilot report's U50 value. A script that matched every report table row to `frontier.json` found it, along with one row left stale on purpose. Copy two-decimal values from the generated markdown, never round a rounded value, and transcribe every value the source reports give.
+
+**Seen again:** 2026-11-09, same-org feasibility (store `docs/same-org-feasibility.md`). A script listed every number in the report that `tables.md` didn't contain, and all of those were derived values that checked out. A reread of each sentence that compares columns found four wrong claims:
+- that the strict combination held more changes than the explicit one, when it held fewer in seven of eight orgs;
+- that one author opened half of each case's PRs, when the column counts cases in which one author opened every PR;
+- that the docs gap vanished in apache, when its AUC was 0.56;
+- that PR-to-PR links were the main source everywhere, when branch pairs or issue references led in three orgs.
+
+A number diff can't catch a wrong comparison. Check each "more", "most", "every" and "vanishes" against the rows it summarizes.
