@@ -76,11 +76,15 @@ def main() -> None:
         ch = an[o]["changes"]
         for c in ("strict", "links"):
             x = ch[c]
+            top = x.get("top_target_set") or []
             rows.append([o, c, x["changes"], round(x["changes"] * per_year), x["t2"], x["t3"],
-                         x["t4plus"], x["distinct_targets"], x["with_issue"], x["with_pre_work_issue"]])
+                         x["t4plus"], x["distinct_targets"], x["with_issue"], x["with_pre_work_issue"],
+                         x.get("opened_within_2min"),
+                         f'{x.get("top_target_set_share")} ({" + ".join(t.split("/")[1] for t in top)})'])
     out.append("### Distinct changes, sizes and request issues\n\n" + table(
         ["Org", "Combo", "Changes", "Per year", "2 targets", "3", "4+", "Distinct targets",
-         "With a linked issue", "With a pre-work issue"], rows))
+         "With a linked issue", "With a pre-work issue", "PRs opened within 2 min",
+         "Top target set share"], rows))
 
     rows = []
     for o in orgs:
