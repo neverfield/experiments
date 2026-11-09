@@ -154,7 +154,7 @@ def pr_opened(path: Path) -> dict[str, datetime]:
     out = {}
     for p in load(path):
         repo, _, n = p["url"].removeprefix("https://github.com/").partition("/pull/")
-        out[f"{repo}#{n}"] = ts(p["createdAt"])
+        out[f"{repo.lower()}#{n}"] = ts(p["createdAt"])
     return out
 
 

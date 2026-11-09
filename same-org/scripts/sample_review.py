@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from analyze import COMBOS, changes, pr_opened, ts  # noqa: E402
 from same_org.gh import GitHub  # noqa: E402
 from same_org.refs import clean  # noqa: E402
 
@@ -57,11 +58,35 @@ def fetch_prs(gh: GitHub, keys: list[str]) -> dict[str, dict]:
     return out
 
 
+def change_cases(org: str, cases: list[dict], combo: str, max_targets: int,
+                 opened: dict, known: dict[str, dict]) -> list[dict]:
+    """`analyze.py`'s distinct changes for one combo, shaped like cases so they can be sampled
+    and rendered alongside them. The hub shown is the change's pre-work issue, if any."""
+    issues = {c["group"]: c for c in cases if c["method"] == "issue-strong" and c.get("hub")}
+    out = []
+    for ch in changes(cases, COMBOS[combo], max_targets, opened):
+        info = [known[p] for p in ch["prs"] if p in known]
+        merged = sorted(ts(p["mergedAt"]) for p in info if p.get("mergedAt"))
+        hub_case = issues.get(ch["pre_work_issue"])
+        out.append({
+            "case_id": f"{org}:change-{combo}:{ch['prs'][0]}", "org": org,
+            "method": f"change-{combo}", "group": ch["pre_work_issue"],
+            "targets": ch["targets"], "n_targets": len(ch["targets"]), "prs": ch["prs"],
+            "span_days": (merged[-1] - merged[0]).days if merged else None,
+            "authors": len({(p.get("author") or {}).get("login") for p in info}),
+            "hub": hub_case["hub"] if hub_case else None,
+        })
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--orgs", nargs="+", required=True)
     ap.add_argument("--mined", required=True)
     ap.add_argument("--methods", nargs="+", default=METHODS)
+    ap.add_argument("--combos", nargs="*", default=[], choices=sorted(COMBOS),
+                    help="also sample analyze.py's distinct changes for these method combos")
+    ap.add_argument("--prefix", default="R", help="block ID prefix, distinct per sheet batch")
     ap.add_argument("--per-cell", type=int, default=6)
     ap.add_argument("--seed", type=int, default=20261109)
     ap.add_argument("--max-targets", type=int, default=12,
@@ -92,9 +117,12 @@ def main() -> None:
         for p in gzip.open(d / "prs.jsonl.gz", "rt"):
             p = json.loads(p)
             known[pr_key(p["repository"]["nameWithOwner"], p["number"])] = p
-        for m in a.methods:
+        opened = pr_opened(d / "prs.jsonl.gz") if a.combos else {}
+        derived = {f"change-{k}": change_cases(org, cases, k, a.max_targets, opened, known)
+                   for k in a.combos}
+        for m in a.methods + list(derived):
             pool = sorted(
-                (c for c in cases
+                (c for c in derived.get(m, cases)
                  if c["method"] == m and 2 <= c["n_targets"] <= a.max_targets),
                 key=lambda c: c["case_id"],
             )
@@ -112,7 +140,7 @@ def main() -> None:
         groups.setdefault((tuple(c["prs"]), tuple(c["targets"])), []).append(c)
     order = sorted(groups)
     random.Random(a.seed + 1).shuffle(order)
-    blocks = {f"R{i + 1:03d}": groups[k] for i, k in enumerate(order)}
+    blocks = {f"{a.prefix}{i + 1:03d}": groups[k] for i, k in enumerate(order)}
 
     def render(bid: str, cs: list[dict]) -> list[str]:
         c = next((x for x in cs if x.get("hub")), cs[0])
@@ -159,6 +187,7 @@ def main() -> None:
         (out / name).write_text("\n".join(lines))
     (out / "sample.json").write_text(json.dumps(
         {"seed": a.seed, "per_cell": a.per_cell, "max_targets": a.max_targets,
+         "orgs": a.orgs, "methods": a.methods, "combos": a.combos,
          "cell_pool": cell_pool, "case_ids": [c["case_id"] for c in sample],
          "blocks": {b: [c["case_id"] for c in cs] for b, cs in blocks.items()},
          "files": files}, indent=1))

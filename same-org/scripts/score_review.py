@@ -12,8 +12,8 @@ Strict precision counts `same`; lenient counts `same` and `partial`. Kinds are t
 The script stops if the verdicts and the sample's case IDs differ. `--second` takes other
 raters' verdicts on a subset and reports agreement and Cohen's kappa against the main file.
 
-    python3 scripts/score_review.py --review ~/so/review --second ~/so/review/verdicts-b.json \
-        --out ~/so/review/scores.json
+    python3 scripts/score_review.py --review ~/so/review-a ~/so/review-b \
+        --second ~/so/review-a/verdicts-b.json --out ~/so/scores.json
 """
 
 from __future__ import annotations
@@ -74,21 +74,32 @@ def agreement(a: dict, b: dict) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--review", required=True, help="directory with sample.json and verdicts.json")
+    ap.add_argument("--review", nargs="+", required=True,
+                    help="directories, each with sample.json and verdicts.json; block IDs must "
+                         "be distinct across them")
     ap.add_argument("--second", nargs="*",
                     help="other raters' verdict files on a subset, for agreement against the main one")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    d = Path(a.review).expanduser()
-    sample = json.loads((d / "sample.json").read_text())
-    raw = json.loads((d / "verdicts.json").read_text())
-    blocks = sample.get("blocks")
-    keys = set(blocks) if blocks else set(sample["case_ids"])
-    missing, extra = keys - raw.keys(), raw.keys() - keys
-    if missing or extra:
-        raise SystemExit(f"verdicts don't match the sample: {len(missing)} missing, "
-                         f"{len(extra)} extra, e.g. {sorted(missing | extra)[:3]}")
-    verdicts = {cid: raw[b] for b, cids in blocks.items() for cid in cids} if blocks else raw
+    sample = {"case_ids": [], "blocks": {}, "cell_pool": {}}
+    raw: dict = {}
+    for r in a.review:
+        d = Path(r).expanduser()
+        s = json.loads((d / "sample.json").read_text())
+        v = json.loads((d / "verdicts.json").read_text())
+        keys = set(s["blocks"]) if s.get("blocks") else set(s["case_ids"])
+        missing, extra = keys - v.keys(), v.keys() - keys
+        if missing or extra:
+            raise SystemExit(f"{d}: verdicts don't match the sample: {len(missing)} missing, "
+                             f"{len(extra)} extra, e.g. {sorted(missing | extra)[:3]}")
+        if keys & raw.keys():
+            raise SystemExit(f"{d}: block IDs repeat across review directories")
+        raw.update(v)
+        sample["case_ids"] += s["case_ids"]
+        sample["blocks"].update(s.get("blocks") or {c: [c] for c in s["case_ids"]})
+        sample["cell_pool"].update(s.get("cell_pool", {}))
+    blocks = sample["blocks"]
+    verdicts = {cid: raw[b] for b, cids in blocks.items() for cid in cids}
     ids = set(sample["case_ids"])
     missing, extra = ids - verdicts.keys(), verdicts.keys() - ids
     if missing or extra:
