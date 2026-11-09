@@ -96,21 +96,25 @@ def main() -> None:
         big = [o for o in orgs if an[o]["active_pool"] >= size]
         xs = [an[o]["changes"]["explicit"] for o in big]
         n = sum(x["not_sweep_like"] for x in xs) * per_year
-        rows.append([f"{size:,}", ", ".join(big) or "–", round(n),
-                     round(sum(x.get("not_sweep_pre_work", 0) for x in xs) * per_year),
-                     round(sum(x.get("not_sweep_t4plus", 0) for x in xs) * per_year)]
+        pre = sum(x.get("not_sweep_pre_work", 0) for x in xs) * per_year
+        t4 = sum(x.get("not_sweep_t4plus", 0) for x in xs) * per_year
+        rows.append([f"{size:,}", ", ".join(big) or "–", round(n), round(pre), round(t4)]
                     + ([f'{round(n * checked["same_not_sweep"]):,} ('
                         f'{round(n * checked["same_not_sweep_ci"][0]):,}–'
-                        f'{round(n * checked["same_not_sweep_ci"][1]):,})'] if checked else []))
+                        f'{round(n * checked["same_not_sweep_ci"][1]):,})',
+                        round(pre * checked["same_not_sweep"]),
+                        round(t4 * checked["same_not_sweep"])] if checked else []))
     out.append("### Explicit-link changes that aren't sweep-like, a year, by pool size\n\nAn org's "
                "changes can be scored at any pool size up to its active pool, by subsampling its "
                "other repos."
                + (f" Expected to pass the hand-check: changes a year times the share of unflagged "
                   f"`change-explicit` blocks rated `same` and not `sweep` "
-                  f"({checked['same_not_sweep']}, n = {checked['n']}), with its 95% interval."
+                  f"({checked['same_not_sweep']}, n = {checked['n']}), with its 95% interval; "
+                  f"the last two columns assume the same share holds for those strata."
                   if checked else "") + "\n\n" + table(
         ["Pool size", "Orgs with a pool this large", "Changes a year", "With a pre-work issue",
-         "4+ targets"] + (["Expected to pass the hand-check"] if checked else []), rows))
+         "4+ targets"] + (["Expected to pass the hand-check", "Pre-work, expected to pass",
+                           "4+, expected to pass"] if checked else []), rows))
 
     rows = []
     for o in orgs:

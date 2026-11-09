@@ -16,7 +16,7 @@ An "org" argument is a GitHub owner, or a group from `same_org/orgs.py` (`k8s` i
 | `analyze.py` | Per method: multi-repo cases, target counts, span, single-repo rate, pre-work request rate, whether requests name targets, a names-only BM25 ranker over the org's active repos. Per method combination: distinct changes (cases joined where they share a PR), with title flags for sweeps (`sweep_like`) and for one title across every PR (`same_title`) | none |
 | `sample_review.py` | Seeded sample of multi-repo cases per org and method, rendered as a review sheet of shuffled blocks that hide the method, one per distinct change (`sheet.md`, `sample.json`). `--combos` also samples joined changes per method combination, and `--methods` with no names samples only those. `--parts` splits it for parallel raters; `--overlap` writes a subset for a second rater. How to judge: `REVIEW.md` | only PRs missing from the mined data |
 | `score_review.py` | Precision per method, pooled and per org, strict and lenient, with Wilson 95% intervals and kinds, from `verdicts.json` keyed on block IDs; agreement and kappa against `--second` raters; each title flag against the raters' kinds, per review directory | none |
-| `report_tables.py` | Prints the report's tables from the outputs above | none |
+| `report_tables.py` | Prints the report's tables from the outputs above, with `cochange.py`'s table when given `--cochange` | none |
 | `doc_profile.py` | README, docs and manifest bytes per repo from one git-tree request each, for an org's multi-repo targets and two control pools (other active repos; other repos that merged a PR in the window), with each feature's AUC | 1 REST request per repo |
 | `clone_cost.py` | Times a depth-1, blobless, sparse git clone of the README, docs and manifests per repo | no API quota |
 | `cochange.py` | For changes after a split date, how much of each target set the earlier cases already hold: every pair seen, any pair seen, and the recall of a co-change lookup seeded with one target | none |
@@ -46,8 +46,11 @@ python3 scripts/sample_review.py --orgs grafana k8s --mined ~/so/mined --out ~/s
 python3 scripts/score_review.py --review ~/so/review --second ~/so/review/verdicts-b.json --out ~/so/review/scores.json
 python3 scripts/doc_profile.py --org grafana --mined ~/so/mined --census ~/so/census --out ~/so/docs/grafana.jsonl
 python3 scripts/clone_cost.py --repos-file ~/so/docs/grafana.jsonl --limit 30 --out ~/so/clone-cost.jsonl
+python3 scripts/cochange.py --orgs grafana k8s --mined ~/so/mined --combo explicit --split 2026-08-01 --out ~/so/cochange.json
+python3 scripts/report_tables.py --orgs grafana k8s --mined ~/so/mined --analysis ~/so/analysis.json \
+    --docs ~/so/docs --scores ~/so/review/scores.json --cochange ~/so/cochange.json > ~/so/tables.md
 ```
 
-The GitHub token comes from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`. On a 401 the client re-reads it every minute, for up to `SAME_ORG_MAX_AUTH_WAIT_MIN` minutes (default 30). A paginated listing raises on any failed page rather than returning a partial list. Network errors and truncated bodies are retried with backoff, and a secondary-limit 403 or 429 without `Retry-After` waits 60 s. Every call's points, wall time, retries and waits go to each script's spend summary.
+The GitHub token comes from `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`. On a 401 the client re-reads it every minute, for up to `SAME_ORG_MAX_AUTH_WAIT_MIN` minutes (default 30). A paginated listing raises on any failed page rather than returning a partial list. Network errors and truncated bodies are retried with backoff, as is a body still arriving after `SAME_ORG_REQUEST_DEADLINE_S` seconds (default 300), and a secondary-limit 403 or 429 without `Retry-After` waits 60 s. Every call's points, wall time, retries and waits go to each script's spend summary.
 
 **Throughput.** GitHub's secondary limit caps server time per minute, so a token gets about 20 to 40 search responses a minute (about 2,000 PRs with bodies) however many workers run. Points are rarely the limit. Run the orgs in parallel with a total of about 8 to 10 workers, and plan on about an hour per 100,000 PRs.
