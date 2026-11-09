@@ -74,17 +74,17 @@ def main() -> None:
     rows = []
     for o in orgs:
         ch = an[o]["changes"]
-        for c in ("strict", "links"):
+        for c in ("strict", "links", "explicit"):
             x = ch[c]
             top = x.get("top_target_set") or []
             rows.append([o, c, x["changes"], round(x["changes"] * per_year), x["t2"], x["t3"],
                          x["t4plus"], x["distinct_targets"], x["with_issue"], x["with_pre_work_issue"],
-                         x.get("opened_within_2min"),
+                         x.get("opened_within_2min"), x.get("sweep_like"), x.get("not_sweep_like"),
                          f'{x.get("top_target_set_share")} ({" + ".join(t.split("/")[1] for t in top)})'])
     out.append("### Distinct changes, sizes and request issues\n\n" + table(
         ["Org", "Combo", "Changes", "Per year", "2 targets", "3", "4+", "Distinct targets",
          "With a linked issue", "With a pre-work issue", "PRs opened within 2 min",
-         "Top target set share"], rows))
+         "Sweep-like", "Not sweep-like", "Top target set share"], rows))
 
     rows = []
     for o in orgs:
@@ -171,6 +171,18 @@ def main() -> None:
         out.append("### Precision by label method (hand-check)\n\n" + table(
             ["Method", "n", "Same", "Partial", "Not", "Strict", "95% CI", "Lenient", "95% CI",
              "Same, not a sweep", "95% CI", "Unsure", "Kinds among same"], rows))
+        if s.get("sweep_flag"):
+            rows = [[Path(r).name, c.get("flag_sweep", 0), c.get("flag_other", 0),
+                     c.get("noflag_sweep", 0), c.get("noflag_other", 0), c["precision"], c["recall"]]
+                    for r, c in s["sweep_flag"].items()]
+            out.append("### Sweep-like flag against the raters' `sweep` kind, per review batch\n\n"
+                       + table(["Batch", "Flag, sweep", "Flag, other", "No flag, sweep",
+                                "No flag, other", "Precision", "Recall"], rows))
+            rows = [[m, c["n"], c["kept"], c["strict"], str(c["strict_ci"]), c["same_not_sweep"],
+                     str(c["same_not_sweep_ci"])] for m, c in s["by_method_unflagged"].items()]
+            out.append("### Precision after dropping sweep-like blocks\n\n" + table(
+                ["Method", "n kept", "Share kept", "Strict", "95% CI", "Same, not a sweep",
+                 "95% CI"], rows))
         rows = [[o, c["n"], c["strict"], str(c["strict_ci"]), c["lenient"], c.get("same_not_sweep")]
                 for o, c in s["by_org"].items()]
         out.append("### Precision by org\n\n" + table(

@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from analyze import COMBOS, changes, pr_opened, ts  # noqa: E402
+from analyze import COMBOS, changes, pr_meta, sweep_like, ts  # noqa: E402
 from same_org.gh import GitHub  # noqa: E402
 from same_org.refs import clean  # noqa: E402
 
@@ -59,12 +59,12 @@ def fetch_prs(gh: GitHub, keys: list[str]) -> dict[str, dict]:
 
 
 def change_cases(org: str, cases: list[dict], combo: str, max_targets: int,
-                 opened: dict, known: dict[str, dict]) -> list[dict]:
+                 meta: dict, known: dict[str, dict]) -> list[dict]:
     """`analyze.py`'s distinct changes for one combo, shaped like cases so they can be sampled
     and rendered alongside them. The hub shown is the change's pre-work issue, if any."""
     issues = {c["group"]: c for c in cases if c["method"] == "issue-strong" and c.get("hub")}
     out = []
-    for ch in changes(cases, COMBOS[combo], max_targets, opened):
+    for ch in changes(cases, COMBOS[combo], max_targets, meta):
         info = [known[p] for p in ch["prs"] if p in known]
         merged = sorted(ts(p["mergedAt"]) for p in info if p.get("mergedAt"))
         hub_case = issues.get(ch["pre_work_issue"])
@@ -117,8 +117,8 @@ def main() -> None:
         for p in gzip.open(d / "prs.jsonl.gz", "rt"):
             p = json.loads(p)
             known[pr_key(p["repository"]["nameWithOwner"], p["number"])] = p
-        opened = pr_opened(d / "prs.jsonl.gz") if a.combos else {}
-        derived = {f"change-{k}": change_cases(org, cases, k, a.max_targets, opened, known)
+        meta = pr_meta(d / "prs.jsonl.gz") if a.combos else {}
+        derived = {f"change-{k}": change_cases(org, cases, k, a.max_targets, meta, known)
                    for k in a.combos}
         for m in a.methods + list(derived):
             pool = sorted(
@@ -190,6 +190,9 @@ def main() -> None:
          "orgs": a.orgs, "methods": a.methods, "combos": a.combos,
          "cell_pool": cell_pool, "case_ids": [c["case_id"] for c in sample],
          "blocks": {b: [c["case_id"] for c in cs] for b, cs in blocks.items()},
+         "sweep_like": {b: sweep_like(
+                            [(pr_info.get(k) or known.get(k) or {}).get("title") for k in cs[0]["prs"]])
+                        for b, cs in blocks.items()},
          "files": files}, indent=1))
     print(json.dumps({"sampled": len(sample), "blocks": len(blocks), "prs_shown": len(shown),
                       "prs_fetched": len(need), "spend": gh.spend.as_dict()}))

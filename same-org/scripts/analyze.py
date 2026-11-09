@@ -46,8 +46,30 @@ ISSUE_METHODS = ("issue-close", "issue-strong", "issue-ref")
 COMBOS = {
     "strict": ("issue-strong", "pr-link-dep", "branch"),
     "links": ("issue-strong", "pr-link", "branch"),
+    "explicit": ("issue-strong", "pr-link"),
     "all": ("issue-close", "issue-strong", "issue-ref", "pr-link", "pr-link-dep", "key", "branch"),
 }
+SWEEP_PREFIX = re.compile(r"^\W*(?:\[[^\]]*\]\s*)?(?:chore|ci|build|deps?|bump|revert|docs?)\b",
+                          re.I)
+SWEEP_WORDS = re.compile(
+    r"\b(?:bump|dependabot|renovate|codeowners|licen[cs]e|copyright|github actions?|actions/|"
+    r"\.github/workflows|ci workflows?|pre-commit|golangci|eslint|linter|linting|go ?1\.\d+\b|"
+    r"node ?\d\d\b|toolchain|[np]?npm audit|yarn audit|cve-\d|vulnerab|sec ?vulns?|deps\b|"
+    r"dependenc|security (?:fix|update|patch)|pin(?:ned|ning)? (?:to|actions|dependenc|versions?)|"
+    r"unpin|shas?\b|(?:update|updating|upgrade) (?:the )?(?:go|node|module|modules|base image|image)\b|"
+    r"changelogs?|release notes|version marker|post release|contributing|contributor guide|"
+    r"build image)", re.I)
+
+
+def sweep_like(titles: list[str]) -> bool:
+    """A change whose PRs all carry one title, or all read as maintenance (conventional `chore`,
+    `ci`, `build` or `deps` prefixes, dependency, toolchain, CI or license wording)."""
+    ts_ = [t for t in titles if t]
+    if len(ts_) < 2:
+        return False
+    if len({re.sub(r"[\W_]+", " ", t.lower()).strip() for t in ts_}) == 1:
+        return True
+    return all(SWEEP_PREFIX.search(t) or SWEEP_WORDS.search(t) for t in ts_)
 
 
 def tokens(s: str) -> list[str]:
@@ -102,11 +124,12 @@ def ts(s: str | None) -> datetime | None:
 
 
 def changes(cases: list[dict], methods: tuple[str, ...], max_targets: int,
-            opened: dict[str, datetime]) -> list[dict]:
+            meta: dict[str, dict]) -> list[dict]:
     """Distinct multi-repo changes: the methods' multi-repo cases joined wherever they share a
     PR. Each change lists the non-bot issue-strong hubs linked to any of its PRs (a single-repo
-    issue case can still be the request for a multi-repo change), and the seconds between its
-    first and last PR being opened (`opened` maps owner/repo#n to createdAt)."""
+    issue case can still be the request for a multi-repo change), the seconds between its
+    first and last PR being opened, and whether its titles look like a sweep (`meta` maps
+    owner/repo#n to {"opened", "title"})."""
     parent: dict[str, str] = {}
 
     def find(x: str) -> str:
@@ -143,18 +166,19 @@ def changes(cases: list[dict], methods: tuple[str, ...], max_targets: int,
         pre = [c for c in reqs.get(r, []) if c["hub"]["createdAt"] and r in first
                and ts(c["hub"]["createdAt"]) < first[r]]
         pre.sort(key=lambda c: c["hub"]["createdAt"])
-        ts_ = [opened[p] for p in ps if p in opened]
+        ts_ = [meta[p]["opened"] for p in ps if p in meta]
         out.append({"targets": targets, "prs": sorted(ps), "has_issue": bool(reqs.get(r)),
                     "pre_work_issue": pre[0]["group"] if pre else None,
-                    "opened_spread_s": (max(ts_) - min(ts_)).total_seconds() if ts_ else None})
+                    "opened_spread_s": (max(ts_) - min(ts_)).total_seconds() if ts_ else None,
+                    "sweep_like": sweep_like([meta[p]["title"] for p in ps if p in meta])})
     return out
 
 
-def pr_opened(path: Path) -> dict[str, datetime]:
+def pr_meta(path: Path) -> dict[str, dict]:
     out = {}
     for p in load(path):
         repo, _, n = p["url"].removeprefix("https://github.com/").partition("/pull/")
-        out[f"{repo.lower()}#{n}"] = ts(p["createdAt"])
+        out[f"{repo.lower()}#{n}"] = {"opened": ts(p["createdAt"]), "title": p.get("title") or ""}
     return out
 
 
@@ -277,9 +301,9 @@ def main() -> None:
                     [(c["group"], c["targets"]) for c in multi if c["hub"]["pre_work"]]))
             org_out["methods"][method] = m
         org_out["changes"] = {}
-        opened = pr_opened(d / "prs.jsonl.gz")
+        meta = pr_meta(d / "prs.jsonl.gz")
         for name, methods in COMBOS.items():
-            ch = changes(cases, methods, a.max_targets, opened)
+            ch = changes(cases, methods, a.max_targets, meta)
             n = len(ch)
             sizes = Counter(min(len(c["targets"]), 4) for c in ch)
             pairs = Counter(tuple(c["targets"]) for c in ch)
@@ -297,6 +321,8 @@ def main() -> None:
                 if n else None,
                 "distinct_targets": len({t for c in ch for t in c["targets"]}),
                 "prs_in_changes": sum(len(c["prs"]) for c in ch),
+                "sweep_like": round(sum(c["sweep_like"] for c in ch) / n, 3) if n else None,
+                "not_sweep_like": sum(not c["sweep_like"] for c in ch),
             }
             co.update(score_requests(
                 [(c["pre_work_issue"], c["targets"]) for c in ch if c["pre_work_issue"]]))

@@ -83,7 +83,7 @@ def main() -> None:
                     help="other raters' verdict files on a subset, for agreement against the main one")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    sample = {"case_ids": [], "blocks": {}, "cell_pool": {}}
+    sample = {"case_ids": [], "blocks": {}, "cell_pool": {}, "sweep_like": {}}
     raw: dict = {}
     for r in a.review:
         d = Path(r).expanduser()
@@ -100,6 +100,7 @@ def main() -> None:
         sample["case_ids"] += s["case_ids"]
         sample["blocks"].update(s.get("blocks") or {c: [c] for c in s["case_ids"]})
         sample["cell_pool"].update(s.get("cell_pool", {}))
+        sample["sweep_like"].update({b: (r, x) for b, x in (s.get("sweep_like") or {}).items()})
     blocks = sample["blocks"]
     verdicts = {cid: raw[b] for b, cids in blocks.items() for cid in cids}
     ids = set(sample["case_ids"])
@@ -125,6 +126,26 @@ def main() -> None:
         "by_org_method": {k: cell(v) for k, v in sorted(by_org_method.items())},
         "cell_pool": sample.get("cell_pool", {}),
     }
+    if sample["sweep_like"]:
+        # The flag from analyze.sweep_like, against the rater's `sweep` kind, per review directory
+        # (the first one tuned the flag's word list; the rest are held out).
+        conf: dict[str, Counter] = defaultdict(Counter)
+        for b, (r, flag) in sample["sweep_like"].items():
+            conf[r][("flag" if flag else "noflag") + ("_sweep" if raw[b].get("kind") == "sweep"
+                                                       else "_other")] += 1
+        out["sweep_flag"] = {}
+        for r, c in conf.items():
+            tp, fp, fn = c["flag_sweep"], c["flag_other"], c["noflag_sweep"]
+            out["sweep_flag"][r] = {**c, "precision": round(tp / (tp + fp), 3) if tp + fp else None,
+                                    "recall": round(tp / (tp + fn), 3) if tp + fn else None}
+        case_block = {cid: b for b, cids in blocks.items() for cid in cids}
+        kept = defaultdict(list)
+        for cid in sample["case_ids"]:
+            if not sample["sweep_like"].get(case_block[cid], (None, False))[1]:
+                kept[cid.split(":")[1]].append(verdicts[cid])
+        out["by_method_unflagged"] = {
+            m: {**cell(v), "kept": round(len(v) / len(by_method[m]), 3)}
+            for m, v in sorted(kept.items())}
     for second in a.second or []:
         b = json.loads(Path(second).expanduser().read_text())
         out.setdefault("agreement", {})[Path(second).name] = agreement(raw, b)
