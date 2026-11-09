@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
-from analyze import changes, sweep_like, ts  # noqa: E402
+from analyze import changes, same_title, sweep_like, ts  # noqa: E402
 from doc_profile import auc  # noqa: E402
 from same_org.orgs import in_owners, load_census, owners_of, search_scope  # noqa: E402
 from score_review import cell, wilson  # noqa: E402
@@ -74,13 +74,21 @@ class ChangesTest(unittest.TestCase):
         self.assertIsNone(ch[1]["pre_work_issue"])
         self.assertEqual((ch[0]["opened_spread_s"], ch[1]["opened_spread_s"]), (172800.0, 0.0))
         self.assertEqual((ch[0]["sweep_like"], ch[1]["sweep_like"]), (False, True))
+        self.assertEqual((ch[0]["same_title"], ch[1]["same_title"]), (False, False))
 
     def test_sweep_like(self):
-        self.assertTrue(sweep_like(["Fix the shader cache", "fix the shader cache"]))
+        self.assertFalse(sweep_like(["Fix the shader cache", "fix the shader cache"]))
         self.assertTrue(sweep_like(["Release Notes for 7.45.0 (ga)", "Changelogs for 7.45.0"]))
+        self.assertTrue(sweep_like(["[templates] Update test templates to MSTest 4.3.2",
+                                    "Bump MSTest"]))
         self.assertFalse(sweep_like(["Share dashboards by link", "chore: bump go"]))
         self.assertFalse(sweep_like(["Add audit log API", "Show audit log in UI"]))
         self.assertFalse(sweep_like(["chore: bump go"]))
+
+    def test_same_title(self):
+        self.assertTrue(same_title(["Fix the shader cache", "fix the shader cache!"]))
+        self.assertFalse(same_title(["Fix the shader cache", "Fix the shader"]))
+        self.assertFalse(same_title(["Fix the shader cache"]))
 
 
 if __name__ == "__main__":

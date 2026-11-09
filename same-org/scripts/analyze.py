@@ -58,18 +58,22 @@ SWEEP_WORDS = re.compile(
     r"dependenc|security (?:fix|update|patch)|pin(?:ned|ning)? (?:to|actions|dependenc|versions?)|"
     r"unpin|shas?\b|(?:update|updating|upgrade) (?:the )?(?:go|node|module|modules|base image|image)\b|"
     r"changelogs?|release notes|version marker|post release|contributing|contributor guide|"
-    r"build image)", re.I)
+    r"build image|(?:update|upgrade)[sd]?\b.{0,60}\bto\b[^,;]{0,30}?\bv?\d+\.\d+)", re.I)
 
 
 def sweep_like(titles: list[str]) -> bool:
-    """A change whose PRs all carry one title, or all read as maintenance (conventional `chore`,
-    `ci`, `build` or `deps` prefixes, dependency, toolchain, CI or license wording)."""
+    """A change whose PRs all read as maintenance (conventional `chore`, `ci`, `build` or `deps`
+    prefixes, dependency, toolchain, CI or license wording). Version 2: tuned on review batches
+    A and B; version 1 also flagged every `same_title` change."""
     ts_ = [t for t in titles if t]
-    if len(ts_) < 2:
-        return False
-    if len({re.sub(r"[\W_]+", " ", t.lower()).strip() for t in ts_}) == 1:
-        return True
-    return all(SWEEP_PREFIX.search(t) or SWEEP_WORDS.search(t) for t in ts_)
+    return len(ts_) >= 2 and all(SWEEP_PREFIX.search(t) or SWEEP_WORDS.search(t) for t in ts_)
+
+
+def same_title(titles: list[str]) -> bool:
+    """A change whose PRs all carry one title: one edit applied to several repos, which raters
+    split between `mirror` and `sweep`."""
+    ts_ = [t for t in titles if t]
+    return len(ts_) >= 2 and len({re.sub(r"[\W_]+", " ", t.lower()).strip() for t in ts_}) == 1
 
 
 def tokens(s: str) -> list[str]:
@@ -167,10 +171,11 @@ def changes(cases: list[dict], methods: tuple[str, ...], max_targets: int,
                and ts(c["hub"]["createdAt"]) < first[r]]
         pre.sort(key=lambda c: c["hub"]["createdAt"])
         ts_ = [meta[p]["opened"] for p in ps if p in meta]
+        titles = [meta[p]["title"] for p in ps if p in meta]
         out.append({"targets": targets, "prs": sorted(ps), "has_issue": bool(reqs.get(r)),
                     "pre_work_issue": pre[0]["group"] if pre else None,
                     "opened_spread_s": (max(ts_) - min(ts_)).total_seconds() if ts_ else None,
-                    "sweep_like": sweep_like([meta[p]["title"] for p in ps if p in meta])})
+                    "sweep_like": sweep_like(titles), "same_title": same_title(titles)})
     return out
 
 
@@ -323,6 +328,8 @@ def main() -> None:
                 "prs_in_changes": sum(len(c["prs"]) for c in ch),
                 "sweep_like": round(sum(c["sweep_like"] for c in ch) / n, 3) if n else None,
                 "not_sweep_like": sum(not c["sweep_like"] for c in ch),
+                "same_title": round(sum(c["same_title"] for c in ch) / n, 3) if n else None,
+                "not_sweep_same_title": sum(not c["sweep_like"] and c["same_title"] for c in ch),
                 "not_sweep_pre_work": sum(not c["sweep_like"] and bool(c["pre_work_issue"])
                                           for c in ch),
                 "not_sweep_t4plus": sum(not c["sweep_like"] and len(c["targets"]) >= 4

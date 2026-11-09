@@ -11,6 +11,8 @@
 Strict precision counts `same`; lenient counts `same` and `partial`. Kinds are tallied per cell.
 The script stops if the verdicts and the sample's case IDs differ. `--second` takes other
 raters' verdicts on a subset and reports agreement and Cohen's kappa against the main file.
+The title flags (`analyze.sweep_like`, `analyze.same_title`) are scored per review directory
+against the rater's kind, from titles stored in `sample.json` or else read from `sheet.md`.
 
     python3 scripts/score_review.py --review ~/so/review-a ~/so/review-b \
         --second ~/so/review-a/verdicts-b.json --out ~/so/scores.json
@@ -21,10 +23,40 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from analyze import same_title, sweep_like  # noqa: E402
+
 VERDICTS = ("same", "partial", "not")
+SHEET_PR = re.compile(r"^- \S+ \[[^\]]*\] \S+ br=\S* files=\S+(?: link=\S+)?: (.*)$", re.M)
+
+
+def sheet_titles(path: Path) -> dict[str, list[str]]:
+    """PR titles per block, read from a sheet, for samples drawn before titles were stored."""
+    out = {}
+    for b in re.split(r"^(?=## )", path.read_text(), flags=re.M):
+        m = re.match(r"## (\S+)", b)
+        if m:
+            out[m.group(1)] = SHEET_PR.findall(b)
+    return out
+
+
+def confusion(flags: dict[str, tuple[str, bool]], raw: dict, kinds: set[str]) -> dict:
+    """A flag against the rater's kind, per review directory."""
+    conf: dict[str, Counter] = defaultdict(Counter)
+    for b, (r, flag) in flags.items():
+        conf[r][("flag" if flag else "noflag") + ("_kind" if raw[b].get("kind") in kinds
+                                                   else "_other")] += 1
+    out = {}
+    for r, c in conf.items():
+        tp, fp, fn = c["flag_kind"], c["flag_other"], c["noflag_kind"]
+        out[r] = {**c, "precision": round(tp / (tp + fp), 3) if tp + fp else None,
+                  "recall": round(tp / (tp + fn), 3) if tp + fn else None}
+    return out
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> list[float] | None:
@@ -83,7 +115,8 @@ def main() -> None:
                     help="other raters' verdict files on a subset, for agreement against the main one")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    sample = {"case_ids": [], "blocks": {}, "cell_pool": {}, "sweep_like": {}}
+    sample = {"case_ids": [], "blocks": {}, "cell_pool": {}, "sweep_v1": {}, "sweep_like": {},
+              "same_title": {}}
     raw: dict = {}
     for r in a.review:
         d = Path(r).expanduser()
@@ -100,7 +133,11 @@ def main() -> None:
         sample["case_ids"] += s["case_ids"]
         sample["blocks"].update(s.get("blocks") or {c: [c] for c in s["case_ids"]})
         sample["cell_pool"].update(s.get("cell_pool", {}))
-        sample["sweep_like"].update({b: (r, x) for b, x in (s.get("sweep_like") or {}).items()})
+        if s.get("flag_version", 1) == 1:
+            sample["sweep_v1"].update({b: (r, x) for b, x in (s.get("sweep_like") or {}).items()})
+        titles = s.get("titles") or sheet_titles(d / "sheet.md")
+        sample["sweep_like"].update({b: (r, sweep_like(t)) for b, t in titles.items()})
+        sample["same_title"].update({b: (r, same_title(t)) for b, t in titles.items()})
     blocks = sample["blocks"]
     verdicts = {cid: raw[b] for b, cids in blocks.items() for cid in cids}
     ids = set(sample["case_ids"])
@@ -127,17 +164,11 @@ def main() -> None:
         "cell_pool": sample.get("cell_pool", {}),
     }
     if sample["sweep_like"]:
-        # The flag from analyze.sweep_like, against the rater's `sweep` kind, per review directory
-        # (the first one tuned the flag's word list; the rest are held out).
-        conf: dict[str, Counter] = defaultdict(Counter)
-        for b, (r, flag) in sample["sweep_like"].items():
-            conf[r][("flag" if flag else "noflag") + ("_sweep" if raw[b].get("kind") == "sweep"
-                                                       else "_other")] += 1
-        out["sweep_flag"] = {}
-        for r, c in conf.items():
-            tp, fp, fn = c["flag_sweep"], c["flag_other"], c["noflag_sweep"]
-            out["sweep_flag"][r] = {**c, "precision": round(tp / (tp + fp), 3) if tp + fp else None,
-                                    "recall": round(tp / (tp + fn), 3) if tp + fn else None}
+        # Flag version 1 was tuned on batch A and version 2 on batches A and B; later batches
+        # are held out for each.
+        out["sweep_flag_v1"] = confusion(sample["sweep_v1"], raw, {"sweep"})
+        out["sweep_flag"] = confusion(sample["sweep_like"], raw, {"sweep"})
+        out["same_title_flag"] = confusion(sample["same_title"], raw, {"mirror", "sweep"})
         case_block = {cid: b for b, cids in blocks.items() for cid in cids}
         kept = defaultdict(list)
         for cid in sample["case_ids"]:
@@ -148,7 +179,8 @@ def main() -> None:
             for m, v in sorted(kept.items())}
     for second in a.second or []:
         b = json.loads(Path(second).expanduser().read_text())
-        out.setdefault("agreement", {})[Path(second).name] = agreement(raw, b)
+        p = Path(second).expanduser()
+        out.setdefault("agreement", {})[f"{p.parent.name}/{p.name}"] = agreement(raw, b)
     Path(a.out).expanduser().write_text(json.dumps(out, indent=1))
     for m, c in out["by_method"].items():
         print(f"{m:13s} n={c['n']:3d} strict={c['strict']} {c['strict_ci']} "

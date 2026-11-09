@@ -186,11 +186,16 @@ def main() -> None:
             ["Method", "n", "Same", "Partial", "Not", "Strict", "95% CI", "Lenient", "95% CI",
              "Same, not a sweep", "95% CI", "Unsure", "Kinds among same"], rows))
         if s.get("sweep_flag"):
-            rows = [[Path(r).name, c.get("flag_sweep", 0), c.get("flag_other", 0),
-                     c.get("noflag_sweep", 0), c.get("noflag_other", 0), c["precision"], c["recall"]]
-                    for r, c in s["sweep_flag"].items()]
-            out.append("### Sweep-like flag against the raters' `sweep` kind, per review batch\n\n"
-                       + table(["Batch", "Flag, sweep", "Flag, other", "No flag, sweep",
+            rows = [[name, Path(r).name, c.get("flag_kind", 0), c.get("flag_other", 0),
+                     c.get("noflag_kind", 0), c.get("noflag_other", 0), c["precision"], c["recall"]]
+                    for key, name in (("sweep_flag_v1", "sweep-like v1"),
+                                      ("sweep_flag", "sweep-like v2"),
+                                      ("same_title_flag", "same title"))
+                    for r, c in (s.get(key) or {}).items()]
+            out.append("### Title flags against the raters' kinds, per review batch\n\nSweep-like "
+                       "flags count `sweep` as the kind; same title counts `mirror` or `sweep`. "
+                       "Version 1 was tuned on batch A, version 2 on batches A and B.\n\n"
+                       + table(["Flag", "Batch", "Flag, kind", "Flag, other", "No flag, kind",
                                 "No flag, other", "Precision", "Recall"], rows))
             rows = [[m, c["n"], c["kept"], c["strict"], str(c["strict_ci"]), c["same_not_sweep"],
                      str(c["same_not_sweep_ci"])] for m, c in s["by_method_unflagged"].items()]

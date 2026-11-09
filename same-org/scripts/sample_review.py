@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from analyze import COMBOS, changes, pr_meta, sweep_like, ts  # noqa: E402
+from analyze import COMBOS, changes, pr_meta, same_title, sweep_like, ts  # noqa: E402
 from same_org.gh import GitHub  # noqa: E402
 from same_org.refs import clean  # noqa: E402
 
@@ -185,14 +185,16 @@ def main() -> None:
         for bid in bids:
             lines += render(bid, blocks[bid])
         (out / name).write_text("\n".join(lines))
+    titles = {b: [(pr_info.get(k) or known.get(k) or {}).get("title") for k in cs[0]["prs"]]
+              for b, cs in blocks.items()}
     (out / "sample.json").write_text(json.dumps(
         {"seed": a.seed, "per_cell": a.per_cell, "max_targets": a.max_targets,
          "orgs": a.orgs, "methods": a.methods, "combos": a.combos,
          "cell_pool": cell_pool, "case_ids": [c["case_id"] for c in sample],
          "blocks": {b: [c["case_id"] for c in cs] for b, cs in blocks.items()},
-         "sweep_like": {b: sweep_like(
-                            [(pr_info.get(k) or known.get(k) or {}).get("title") for k in cs[0]["prs"]])
-                        for b, cs in blocks.items()},
+         "flag_version": 2, "titles": titles,
+         "sweep_like": {b: sweep_like(t) for b, t in titles.items()},
+         "same_title": {b: same_title(t) for b, t in titles.items()},
          "files": files}, indent=1))
     print(json.dumps({"sampled": len(sample), "blocks": len(blocks), "prs_shown": len(shown),
                       "prs_fetched": len(need), "spend": gh.spend.as_dict()}))
