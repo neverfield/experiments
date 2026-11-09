@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
-from analyze import changes, ts  # noqa: E402
+from analyze import changes, sweep_like, ts  # noqa: E402
 from doc_profile import auc  # noqa: E402
 from same_org.orgs import in_owners, load_census, owners_of, search_scope  # noqa: E402
 from score_review import cell, wilson  # noqa: E402
@@ -62,14 +62,25 @@ class ChangesTest(unittest.TestCase):
             {"method": "branch", "n_targets": 2, "prs": ["o/d#4", "o/e#5"],
              "first_created": t.format(5)},
         ]
-        opened = {"o/a#1": ts(t.format(3)), "o/b#2": ts(t.format(4)), "o/c#3": ts(t.format(5)),
-                  "o/d#4": ts(t.format(5)), "o/e#5": ts(t.format(5))}
-        ch = sorted(changes(cases, ("branch", "pr-link", "issue-strong"), 12, opened),
+        titles = {"o/a#1": "Add quota API", "o/b#2": "Read quota in client",
+                  "o/c#3": "Show quota in UI", "o/d#4": "chore: bump go to 1.26",
+                  "o/e#5": "chore(deps): update go to 1.26"}
+        days = {"o/a#1": 3, "o/b#2": 4, "o/c#3": 5, "o/d#4": 5, "o/e#5": 5}
+        meta = {k: {"opened": ts(t.format(days[k])), "title": v} for k, v in titles.items()}
+        ch = sorted(changes(cases, ("branch", "pr-link", "issue-strong"), 12, meta),
                     key=lambda c: c["prs"])
         self.assertEqual([c["targets"] for c in ch], [["o/a", "o/b", "o/c"], ["o/d", "o/e"]])
         self.assertEqual(ch[0]["pre_work_issue"], "o/a#9")
         self.assertIsNone(ch[1]["pre_work_issue"])
         self.assertEqual((ch[0]["opened_spread_s"], ch[1]["opened_spread_s"]), (172800.0, 0.0))
+        self.assertEqual((ch[0]["sweep_like"], ch[1]["sweep_like"]), (False, True))
+
+    def test_sweep_like(self):
+        self.assertTrue(sweep_like(["Fix the shader cache", "fix the shader cache"]))
+        self.assertTrue(sweep_like(["Release Notes for 7.45.0 (ga)", "Changelogs for 7.45.0"]))
+        self.assertFalse(sweep_like(["Share dashboards by link", "chore: bump go"]))
+        self.assertFalse(sweep_like(["Add audit log API", "Show audit log in UI"]))
+        self.assertFalse(sweep_like(["chore: bump go"]))
 
 
 if __name__ == "__main__":
