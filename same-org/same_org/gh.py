@@ -76,12 +76,16 @@ class Spend:
 class GitHub:
     """Thread-safe client. `min_remaining` keeps a reserve so other work on the token isn't starved."""
 
-    def __init__(self, cache_dir: str | Path, min_remaining: int = 200, verbose: bool = False):
+    def __init__(self, cache_dir: str | Path, min_remaining: int = 200, verbose: bool = False,
+                 max_5xx_retries: int = 4):
         self.cache = Path(cache_dir).expanduser()
         self.cache.mkdir(parents=True, exist_ok=True)
         self.tok = _token()
         self.min_remaining = min_remaining
         self.verbose = verbose
+        # A query too heavy for GitHub's timeout 502s on every retry; callers that can split
+        # the query should retry less.
+        self.max_5xx_retries = max_5xx_retries
         self.spend = Spend()
         self.auth_failures = 0
         self.max_auth_wait_min = int(os.environ.get("SAME_ORG_MAX_AUTH_WAIT_MIN", "30"))
@@ -158,7 +162,7 @@ class GitHub:
                         hdrs = {"retry-after": "60"}
                     self._wait_reset(hdrs, f"HTTP {e.code} rate limited")
                     continue
-                if e.code in (500, 502, 503, 504) and attempt < 4:
+                if e.code in (500, 502, 503, 504) and attempt < self.max_5xx_retries:
                     attempt += 1
                     self.spend.add(retries=1)
                     time.sleep(4 * 2**attempt)
@@ -231,12 +235,13 @@ class GitHub:
             errs = out.get("errors") or []
             # A 200 with errors and no data is a server-side timeout; retry it like a 502.
             transient = status in (502, 504) or (status == 200 and errs and not out.get("data"))
-            if transient or any(e.get("type") == "RATE_LIMITED" for e in errs):
+            limited = any(e.get("type") == "RATE_LIMITED" for e in errs)
+            if transient or limited:
                 self.spend.add(retries=1)
                 attempt += 1
-                if attempt > 5:
+                if attempt > (5 if limited else self.max_5xx_retries + 1):
                     raise RuntimeError(f"graphql failed after retries: {raw[:300]!r}")
-                if any(e.get("type") == "RATE_LIMITED" for e in errs):
+                if limited:
                     self._wait_reset(hdrs, "graphql RATE_LIMITED")
                 else:
                     time.sleep(4 * 2**attempt)

@@ -105,7 +105,7 @@ def main() -> None:
     print(f"[expand] {a.org}: {len(usable)} of {len(prs)} PRs usable; they reference "
           f"{len(targets)} in-org items", file=sys.stderr)
 
-    gh = GitHub(a.cache)
+    gh = GitHub(a.cache, max_5xx_retries=0)
     chunks = [targets[i : i + a.batch] for i in range(0, len(targets), a.batch)]
 
     def run(chunk: list[str]) -> dict[str, dict | None]:
