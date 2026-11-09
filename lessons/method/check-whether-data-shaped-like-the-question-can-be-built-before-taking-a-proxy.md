@@ -1,0 +1,12 @@
+# Check whether data shaped like the question can be built before taking a proxy
+
+**Experiment:** repo-discovery, study-question review · **Added:** 2026-11-09 · **Source:** store `docs/study-question-review.md` (Part 4: How the universes grow; Needs a new study, 1); store `docs/repo-discovery-study.plan.md` §2 and §8; store `docs/repo-discovery-study-full.plan.md` (`bench-mining` todo; §4; §13, 1); coordinator's notes
+
+**What happened.** Andrew's question is a company's: map a feature request to the repositories it touches, among X repositories of one organisation. The study took WideSWE because it existed and had labels.
+- **Its shape.** Public ecosystems, every case's targets under one owner, and universes made of the targets, context repositories, a quota of same-owner decoys (5 to 120 from U50 to U10000) and a GitHub sample. From U1000 up, 96–99% of the added repositories are unrelated public projects. Context and same-owner repositories are 4% of decoys at U1000 and 1.2% at U10000 (review, Part 4).
+- **The closer source that was dropped.** The full plan meant to mine OpenStack changes linked across repositories by `Depends-On`, but costed it with two-annotator grading, about 250 to 500 hours for about 250 new cases. The lightweight plan dropped it with the annotators (§8).
+- **What nobody checked.** The plans record no test of whether one organisation's linked cross-repository changes (shared issue keys, PR cross-references, `Depends-On`) could supply labels directly, the way WideSWE's labels come from its reference changes.
+
+**What it cost.** Every size result answers "X unrelated repositories plus a few dozen siblings", not "an organisation of X repositories". No analysis of the existing runs can change that. The review's first recommendation for a new study is same-organisation universes with labels from linked cross-repository changes. Of the four design checks this review produced, this one is the most valuable on its own: the others show that a proxy falls short, and this one replaces it (coordinator's notes).
+
+**Next time.** Before adopting a benchmark, write down the data the question implies: the candidate set (here, one organisation's repositories at the sizes asked about) and where its labels could come from. Spend a small, fixed effort, such as one organisation and a few dozen cases, testing whether links that already exist can supply them. Take a proxy only if that fails, and say in the plan which part of the question the proxy can't answer.
