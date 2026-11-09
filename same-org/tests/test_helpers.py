@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 from analyze import changes, same_title, sweep_like, ts  # noqa: E402
+from cochange import score as cochange_score  # noqa: E402
 from doc_profile import auc  # noqa: E402
 from same_org.orgs import in_owners, load_census, owners_of, search_scope  # noqa: E402
 from score_review import cell, wilson  # noqa: E402
@@ -84,6 +85,19 @@ class ChangesTest(unittest.TestCase):
         self.assertFalse(sweep_like(["Share dashboards by link", "chore: bump go"]))
         self.assertFalse(sweep_like(["Add audit log API", "Show audit log in UI"]))
         self.assertFalse(sweep_like(["chore: bump go"]))
+
+    def test_cochange_skips_cases_sharing_the_changes_prs(self):
+        t = "2026-0{}-01T00:00:00Z"
+        cases = [{"n_targets": 2, "targets": ["o/a", "o/b"], "prs": ["o/a#1", "o/b#1"],
+                  "first_created": t.format(6)},
+                 {"n_targets": 2, "targets": ["o/a", "o/c"], "prs": ["o/a#5", "o/c#5"],
+                  "first_created": t.format(7)}]
+        meta = {k: {"opened": ts(t.format(8))} for k in ("o/a#5", "o/b#9", "o/c#5")}
+        chs = [{"targets": ["o/a", "o/b", "o/c"], "prs": ["o/a#5", "o/b#9", "o/c#5"],
+                "sweep_like": False}]
+        r = cochange_score(cases, chs, meta, ts(t.format(8)))
+        self.assertEqual((r["changes"], r["all_pairs_seen"], r["any_pair_seen"]), (1, 0.0, 1.0))
+        self.assertAlmostEqual(r["seed_recall"], (1 / 2 + 1 / 2 + 0) / 3, places=3)
 
     def test_same_title(self):
         self.assertTrue(same_title(["Fix the shader cache", "fix the shader cache!"]))
