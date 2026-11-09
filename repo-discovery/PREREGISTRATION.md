@@ -445,7 +445,11 @@ Entry 7's reruns ran from 2026-11-04 20:33 to 2026-11-08 05:43 UTC. This addendu
         - the right ranker and size in every row;
         - 5 distinct draws in each of the 10 `bm25f-deps-random` cells;
         - one macOS-native universe root per name condition and size.
-      - **Logs.** The 240 logs have 0 lines naming a metric. They have 79 unexpected lines, all in the 20 logs of `dense-cards` and `hybrid-rrf`. These are the same kinds as the reruns' 66, plus one macOS-only PyTorch import warning per log, and only their digit-masked shapes were read. The Hub warning shows that the embedding cells contacted the Hugging Face Hub in both sets, and the model revision each set loaded was [embedding model revision: reruns vs host].
+      - **Logs.** The 240 logs have 0 lines naming a metric. They have 79 unexpected lines, all in the 20 logs of `dense-cards` and `hybrid-rrf`. These are the same kinds as the reruns' 66, plus one macOS-only PyTorch import warning per log, and only their digit-masked shapes were read. The Hub warning shows that the embedding cells contacted the Hugging Face Hub in both sets.
+        - Both sets loaded `BAAI/bge-small-en-v1.5` at revision `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, which `embeddings.py` at `c4b458f` pins. It checks the weights' sha256 on load, against `3c9f31665447c8911517620762200d2245a2518d6e7208acc78cd9db317e21ad`.
+        - Each set's model cache holds only that snapshot, and its weights match the pinned sha256.
+        - No model file in the reruns' cache was created or changed from 03:13 to 15:19 UTC on 2026-11-09. The only change to that cache was `huggingface_hub` 2.4.0's own `.agent_harnesses.json`, which isn't model data.
+        - Dev runs set `HF_HUB_OFFLINE=1` against the same cache, so they could only have loaded that revision.
       - **Shell history.** The laptop's zsh history (433 lines) has 0 lines matching the spec's pattern `runs/static|repo-discovery (run|evaluate)|repo_discovery\.cli`, and 0 lines containing `evaluate`. There's no bash history. No line matches the batch's own `run` commands either, so the history doesn't record how the batch was started.
       - **Reproduction.** 0 of the 240 host files equal their rerun by whole-file digest, as expected, since each host file also carries the 61 dev rows.
         - Case by case, 14,152 of the 14,160 test rankings (240 files × 59 cases) are identical, and 234 of the 240 files match on all 59 cases.
