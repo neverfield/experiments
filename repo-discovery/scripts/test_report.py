@@ -2,9 +2,9 @@
 entry 7, frozen before any test score was read. See TEST_ANALYSIS.md.
 
     python scripts/test_report.py INPUTS.json --registered COMMIT --out DIR \\
-        [--allow-pending] [--s1] [--allow-dirty]
+        [--allow-pending] [--allow-dirty]
     python scripts/test_report.py --dry-run RUNLIST [--dry-run RUNLIST ...] \\
-        (INPUTS.json | --runs-root ROOT) [--s1] [--out FILE]
+        (INPUTS.json | --runs-root ROOT) [--out FILE]
 
 COMMIT is the registration commit, which the checkout must descend from; it's checked
 before anything is read. INPUTS.json says where the cases, passes, static runs,
@@ -16,8 +16,9 @@ pending (unless ``--allow-pending``) or fails its trace bounds, or the code diff
 its commit (unless ``--allow-dirty``).
 
 ``--dry-run`` reads only the run lists, ``run.env`` stamps and file names, and reports
-which passes would be scored and which withdrawn passes S1 would read. It opens no
-prediction or trace, and needs no ``--registered``.
+which passes would be scored. With INPUTS.json it also checks that every file it names
+exists. It opens no prediction or trace, and
+needs no ``--registered``.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from pathlib import Path
 
 from heldout_report import build, code_version, write
 from heldout_runs import dry_run
-from heldout_score import Inputs, ScoringError
+from heldout_score import Inputs, ScoringError, check_inputs
 
 from repo_discovery.split import check_registered
 
@@ -43,7 +44,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     p.add_argument("--out", type=Path, help="report directory; with --dry-run, a JSON file")
     p.add_argument("--allow-pending", action="store_true", help="score without the pending passes")
-    p.add_argument("--s1", action="store_true", help="add sensitivity analysis S1 (off by default)")
     p.add_argument(
         "--allow-dirty", action="store_true", help="run on code that differs from its commit"
     )
@@ -60,9 +60,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.dry_run,
             root,
             inputs.accept if inputs else {},
-            args.s1,
             inputs.run_env_commit_key if inputs else None,
             inputs.trace_dir if inputs else None,
+            check_inputs(inputs) if inputs else None,
         )
         print(text, end="")
         if args.out:
@@ -85,7 +85,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ScoringError(
             f"{args.inputs}: the reported run needs {' and '.join(missing)}; see TEST_ANALYSIS.md"
         )
-    report = build(inputs, registered, args.allow_pending, args.s1)
+    report = build(inputs, registered, args.allow_pending)
     write(report, args.out)
     print(f"## {len(report.results)} cells scored; report in {args.out / 'report.md'}\n")
     print(report.tables["confirmatory"], end="")

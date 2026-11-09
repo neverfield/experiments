@@ -9,6 +9,7 @@ checks that the other files exist.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 from collections.abc import Mapping, Sequence
@@ -19,13 +20,11 @@ from heldout_plan import (
     CELLS,
     MAX_NO_CALL_CASES,
     MAX_TIMEOUT_CASES,
+    N_CASES,
     PASSES,
     PRED_FILE,
     REGISTRATION,
     RUN_ENV,
-    S1_AREA,
-    S1_PASSES,
-    S1_TOOL_BROKEN,
     TEST_AREA,
     CellSpec,
     RegisteredPass,
@@ -43,7 +42,7 @@ def pass_dir(runs_root: Path, key: str, area: str = TEST_AREA) -> Path:
     return runs_root / area / key
 
 
-def trace_dir(directory: Path, template: str = "{pass}") -> Path:
+def trace_dir(directory: Path, template: str) -> Path:
     return Path(template.replace("{pass}", str(directory)))
 
 
@@ -334,13 +333,17 @@ def _files(
     commit_key: str | None,
     traces_dir: Path | None = None,
 ) -> tuple[str, list[str]]:
-    """What a pass directory holds, by file name only, and its ``run.env`` commit check."""
+    """What a pass directory holds, by file name only, its ``run.env`` commit check, and
+    whether scoring would find its predictions and a trace per case."""
     if not directory.is_dir():
-        return "directory absent", []
+        return "directory absent", [f"no pass directory at {directory}"]
     names = [p.name for p in directory.iterdir()]
     where = traces_dir or directory
     traces = sum(p.name.endswith(".json") for p in where.iterdir()) if where.is_dir() else 0
     parts = [f"{PRED_FILE} {'present' if PRED_FILE in names else 'absent'}", f"{traces} traces"]
+    problems = [] if PRED_FILE in names else [f"no {PRED_FILE}"]
+    if traces < N_CASES:
+        problems.append(f"{traces} traces at {where} for {N_CASES} test cases")
     env = read_run_env(directory / RUN_ENV, commit_key) if RUN_ENV in names else None
     if env is None:
         parts.append(f"no {RUN_ENV}")
@@ -348,12 +351,22 @@ def _files(
         parts.append(f"host {env.get('host', '?')}, complete {env.get('complete', '?')}")
     parts.append(f"commit {commit_label(env, registered)}" if registered else "")
     problem = commit_problem(env, registered)
-    return ", ".join(p for p in parts if p), [problem] if problem else []
+    return ", ".join(p for p in parts if p), [*problems, *([problem] if problem else [])]
+
+
+def _expanded(path: Path) -> Path:
+    return Path(os.path.expandvars(str(path))).expanduser().resolve()
 
 
 def decide(
-    run: ListedRun, accept: Mapping[str, object], s1: bool, commit_key: str | None = None
+    run: ListedRun,
+    accept: Mapping[str, object],
+    commit_key: str | None = None,
+    runs_root: Path | None = None,
+    trace_template: str | None = None,
 ) -> Decision:
+    """With ``runs_root`` and ``trace_template``, the files are looked for where scoring
+    will read them, not where the line wrote them."""
     if run.key is None:
         return Decision(run, "-", "not a pass line; never scored", "")
     cell = run.key.split("/", 1)[1]
@@ -361,20 +374,18 @@ def decide(
     registered = PASSES.get(run.key)
     if spec is not None and spec.agent:
         run.problems += flag_problems(spec, run)
-    directory = (run.runs_root or Path()) / (run.area or "") / run.key
+    directory = (runs_root or run.runs_root or Path()) / (run.area or "") / run.key
     if run.area != TEST_AREA:
-        s1_pass = run.area == S1_AREA and run.key in S1_PASSES
-        decision = (
-            ("read by S1 (on)" if s1 else "S1 only; S1 is off")
-            if s1_pass
-            else "withdrawn; never scored"
-        )
         exists = "present" if directory.is_dir() else "absent"
-        return Decision(run, "withdrawn", decision, f"directory {exists} (not opened)")
+        return Decision(
+            run, "withdrawn", "withdrawn; never scored", f"directory {exists} (not opened)"
+        )
     listed = run.flags.get("trace-dir")
-    files, problems = _files(
-        directory, registered, commit_key, Path(listed) if isinstance(listed, str) else None
-    )
+    if trace_template is not None:
+        traces = trace_dir(directory, trace_template)
+    else:
+        traces = Path(listed) if isinstance(listed, str) else None
+    files, problems = _files(directory, registered, commit_key, traces)
     run.problems += problems
     if registered is None:
         return Decision(run, "unregistered", "not registered; never scored", files)
@@ -383,7 +394,7 @@ def decide(
             run, "pending", "pending (item 13); scored once the inputs accept it", files
         )
     if run.problems:
-        return Decision(run, registered.status, "line differs from its cell; check first", files)
+        return Decision(run, registered.status, "not scorable as is; see its problems", files)
     if registered.status == "exploratory":
         return Decision(run, "exploratory", "scored as exploratory (item 14)", files)
     return Decision(run, registered.status, "scored", files)
@@ -393,23 +404,25 @@ def dry_run(
     lists: Sequence[Path],
     runs_root: Path,
     accept: Mapping[str, object] = {},
-    s1: bool = False,
     commit_key: str | None = None,
     trace_template: str | None = None,
+    inputs_problems: Sequence[str] | None = None,
 ) -> tuple[str, dict]:
     """A markdown report of which passes each run list would have scored, and the same as
-    JSON. No prediction or trace is opened; S1's directories are only checked to exist.
+    JSON. No prediction or trace is opened.
     With ``trace_template`` (INPUTS.json's ``trace_dir``), a line whose traces are elsewhere
-    is a problem."""
+    is a problem. ``inputs_problems`` are what scoring would find missing in INPUTS.json."""
     listed = [run for path in lists for run in parse_run_list(path)]
-    read = [r for r in listed if r.area == TEST_AREA or (r.area == S1_AREA and r.key in S1_PASSES)]
+    read = [r for r in listed if r.area == TEST_AREA]
     for run in read:
+        if run.runs_root is not None and _expanded(run.runs_root) != _expanded(runs_root):
+            run.problems.append(f"--out is under {run.runs_root}, not runs_root {runs_root}")
         found = listed_trace_dir(run)
         if trace_template is not None and found is not None and found != trace_template:
             run.problems.append(
                 f"--trace-dir puts traces at {found}; INPUTS.json's trace_dir is {trace_template}"
             )
-    decisions = [decide(run, accept, s1, commit_key) for run in listed]
+    decisions = [decide(run, accept, commit_key, runs_root, trace_template) for run in listed]
     templates = sorted({t for t in map(listed_trace_dir, read) if t is not None})
     if len(templates) == 1:
         where = f"every line puts its traces at `{templates[0]}`, the `trace_dir` for INPUTS.json"
@@ -424,6 +437,14 @@ def dry_run(
         "",
         f"Traces: {where}.",
         "",
+    ]
+    if inputs_problems is not None:
+        lines += [
+            f"INPUTS.json: {len(inputs_problems)} problems"
+            + "".join(f"\n- {p}" for p in inputs_problems),
+            "",
+        ]
+    lines += [
         "| Line | Pass | Area | Registry | Decision | Files | Problems |",
         "|---|---|---|---|---|---|---|",
     ]
@@ -446,20 +467,10 @@ def dry_run(
         f"**Would score {len(set(scored))} registered passes** of "
         f"{sum(p.status != 'exploratory' for p in PASSES.values())}; "
         f"{sum(d.status == 'exploratory' and d.decision.startswith('scored') for d in decisions)} "
-        "exploratory.",
-        "",
-        f"## S1 ({'on' if s1 else 'off, the default'}): withdrawn passes it would read",
-        "",
-        "Scored as written in place of their reruns; never opened by this dry run.",
-        "",
+        "exploratory. "
+        f"{sum(bool(d.run.problems) for d in decisions if d.run.area == TEST_AREA)} test lines "
+        "have problems.",
     ]
-    s1_rows = []
-    for key in S1_PASSES:
-        directory = pass_dir(runs_root, key, S1_AREA)
-        broken = " (tool never reached its server in item 12: †)" if key in S1_TOOL_BROKEN else ""
-        exists = "present" if directory.is_dir() else "absent"
-        lines.append(f"- `{directory}/` ({exists}){broken}")
-        s1_rows.append({"pass": key, "path": str(directory), "exists": directory.is_dir()})
     record = {
         "lines": [
             {
@@ -475,7 +486,7 @@ def dry_run(
             for d in decisions
         ],
         "trace_dirs": templates,
+        "inputs_problems": None if inputs_problems is None else list(inputs_problems),
         "unlisted": unlisted,
-        "s1": {"enabled": s1, "passes": s1_rows},
     }
     return "\n".join(lines) + "\n", record

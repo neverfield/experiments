@@ -5,7 +5,7 @@ then the cases, the pass plan (pending passes stop it), the trace audits (a fail
 registered pass stops it), and only then the predictions. ``write`` puts everything
 under one directory:
 
-- ``report.md``: every table below, in §4's order, with the exploratory and S1 sections
+- ``report.md``: every table below, in §4's order, with the exploratory sections
   labelled as such;
 - ``tables/*.md``: the same tables one per file, for the paper;
 - ``figures/forest.svg`` (the six confirmatory differences with a per-ecosystem strip)
@@ -43,14 +43,12 @@ from heldout_plan import (
     PRIMARY,
     PRIMARY_PICKS,
     REGISTRATION,
-    S1_PASSES,
-    S1_TOOL_BROKEN,
     SECONDARY_PICKS,
     SEED,
     SIZES,
     CellSpec,
 )
-from heldout_runs import PassAudit, audit_pass
+from heldout_runs import PassAudit
 from heldout_score import (
     ABOVE_LAST,
     GIVEN,
@@ -71,7 +69,6 @@ from heldout_score import (
     gap,
     load_cases,
     plan_passes,
-    s1_results,
     score_all,
     stability,
 )
@@ -108,7 +105,6 @@ class Report:
     skipped: list[str]
     merge_dates: dict[str, str | None] | None = None
     costs: selection.CostTables | None = None
-    s1: dict | None = None
     tables: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -145,7 +141,7 @@ def load_merge_dates(inputs: Inputs, cases: Mapping[str, CaseSet]) -> dict[str, 
     return {i: found.get(i) for i in cases["real"].ids}
 
 
-def build(inputs: Inputs, registered: str, allow_pending: bool = False, s1: bool = False) -> Report:
+def build(inputs: Inputs, registered: str, allow_pending: bool = False) -> Report:
     cases = load_cases(inputs, registered)
     sources, notes = plan_passes(inputs, allow_pending)
     audits, more = audit_passes(sources, cases, inputs)
@@ -165,41 +161,7 @@ def build(inputs: Inputs, registered: str, allow_pending: bool = False, s1: bool
         load_merge_dates(inputs, cases),
         selection.cost_tables(selection.load_registry(inputs.costs)) if inputs.costs else None,
     )
-    if s1:
-        report.s1 = build_s1(inputs, cases, results, allow_pending)
     return report
-
-
-def build_s1(
-    inputs: Inputs,
-    cases: Mapping[str, CaseSet],
-    results: Mapping[str, CellResult],
-    allow_pending: bool,
-) -> dict:
-    """S1, minimal: the five passes' audits as written and H1-H3 with them in place."""
-    rescored = s1_results(inputs, cases, results, allow_pending)
-    sources, _ = plan_passes(inputs, allow_pending, s1=True)
-    audits = [
-        audit_pass(
-            CELLS[s.registered.cell],  # type: ignore[union-attr]
-            s.registered,
-            s.predictions.parent,
-            s.traces,  # type: ignore[arg-type]
-            list(cases[CELLS[s.registered.cell].names].cases),  # type: ignore[union-attr]
-            inputs.run_env_commit_key,
-        )
-        for cell in sources.values()
-        for s in cell
-        if s.as_written
-    ]
-    diffs, skipped = comparisons(rescored, cases["real"].ecosystem)
-    touched = sorted({k.split("/", 1)[1] for k in S1_PASSES})
-    return {
-        "results": {k: rescored[k] for k in touched if k in rescored},
-        "audits": audits,
-        "diffs": [d for d in diffs if d.comparison.family == "confirmatory"],
-        "skipped": skipped,
-    }
 
 
 # Summaries ----------------------------------------------------------------------------
@@ -482,7 +444,7 @@ def confirmatory_table(report: Report, summaries: Mapping[str, CellSummary]) -> 
         "",
         DEV_H2,
     ]
-    notes += [f"- Not computed: {s}" for s in report.skipped if "Holm" in s or s.startswith("H")]
+    notes += [f"- Not computed: {s}" for s in report.skipped if s.startswith("H")]
     return table(head, rows, right=(3, 5, 6, 8, 9)) + "\n".join(notes) + "\n"
 
 
@@ -719,6 +681,11 @@ def cost_table(report: Report, summaries: Mapping[str, CellSummary]) -> str:
         )
         + "\n$ per complete set is the mean $ per case over the mean CR@10. "
         "Latency is the laptop runner's (§6, deviation 6).\n"
+        + (
+            ""
+            if report.costs is not None
+            else "\nThe cost frontier isn't computed: no `costs` in the inputs.\n"
+        )
     )
 
 
@@ -1036,49 +1003,6 @@ def misses_table(report: Report) -> str:
     )
 
 
-def s1_section(report: Report) -> str:
-    s1 = report.s1
-    if s1 is None:
-        return (
-            "S1 is off (the default). `--s1` scores the five concurrency-withdrawn passes "
-            "as written in place of their reruns.\n"
-        )
-    rows = [
-        [
-            a.key,
-            a.commit,
-            a.traces,
-            len(a.timeouts),
-            len(a.provider_errors),
-            "yes" if a.key in S1_TOOL_BROKEN else "",
-            "; ".join(a.problems) or "—",
-        ]
-        for a in s1["audits"]
-    ]
-    out = (
-        "**Sensitivity analysis S1, not registered.** "
-        "The five passes withdrawn under entry 7's concurrency rule (addendum item 18), "
-        "scored as written in place of their reruns; "
-        "errored and timed-out cases count as written. "
-        "Everything else is as registered.\n\n"
-    )
-    out += table(
-        [
-            "Withdrawn pass",
-            "Commit",
-            "Traces",
-            "Timeout cases",
-            "Provider-error cases",
-            "Tool never reached its server (†)",
-            "Bounds it fails",
-        ],
-        rows,
-        right=(2, 3, 4),
-    )
-    out += "\nH1-H3 under S1:\n\n" + comparison_table(s1["diffs"], with_p=True)
-    return out
-
-
 # Figures ------------------------------------------------------------------------------
 
 
@@ -1304,7 +1228,6 @@ def write(report: Report, out: Path) -> None:
             "Exploratory (item 17): the `none` visibility group",
             none_table(report, summaries),
         ),
-        ("s1", "Sensitivity S1 (off by default)", s1_section(report)),
     ]
     tables = out / "tables"
     tables.mkdir(exist_ok=True)
@@ -1428,8 +1351,6 @@ def write(report: Report, out: Path) -> None:
             d = compare(c, report.results, report.ecosystem, ids=ids) if ids else None
             if d is not None:
                 diff_rows.append(difference_record(d, "none"))
-    if report.s1:
-        diff_rows += [difference_record(d, "s1") for d in report.s1["diffs"]]
     write_csv(out / "comparisons.csv", diff_rows)
 
     frontier = None

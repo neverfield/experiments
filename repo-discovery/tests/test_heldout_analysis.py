@@ -10,6 +10,7 @@ import io
 import json
 import math
 import shlex
+import shutil
 import statistics
 import sys
 from collections import Counter
@@ -206,8 +207,6 @@ class Study:
         (root / "costs.yaml").write_text(json.dumps(costs))
         for key, registered in plan.PASSES.items():
             self.write_pass(plan.TEST_AREA, key, registered)
-        for key in plan.S1_PASSES:
-            self.write_pass(plan.S1_AREA, key, plan.PASSES[key], withdrawn=True)
         for spec in plan.CELLS.values():
             if not spec.agent:
                 self.write_static(spec)
@@ -217,6 +216,7 @@ class Study:
     def write_inputs(self, **changes: object) -> Path:
         inputs = {
             "runs_root": "runs",
+            "trace_dir": "{pass}",
             "cases": {"real": "cases/real.jsonl", "hidden": "cases/hidden.jsonl"},
             "case_map": "cases/map.json",
             "static": "static/{cell}.jsonl",
@@ -241,26 +241,18 @@ class Study:
                 (how or (lambda i: mode(spec.name, label, i)))(i),
                 i,
             )
-            out.append(Prediction(case.case_id, spec.method, tuple(ranked), "u", spec.size, 0.1))
+            out.append(Prediction(case.case_id, spec.ranker, tuple(ranked), "u", spec.size, 0.1))
         return out
 
-    def write_pass(
-        self, area: str, key: str, registered: plan.RegisteredPass, withdrawn: bool = False
-    ) -> None:
+    def write_pass(self, area: str, key: str, registered: plan.RegisteredPass) -> None:
         spec = plan.CELLS[registered.cell]
         directory = self.root / "runs" / area / key
         label = key.split("/")[0]
-        how = (lambda i: "last") if withdrawn else None
-        predictions = self.predictions(spec, label, how)
-        if withdrawn:
-            predictions = predictions[:-2]
+        predictions = self.predictions(spec, label)
         write_predictions(directory / plan.PRED_FILE, predictions)
-        for i, (case, p) in enumerate(
-            zip(self.cases[spec.names], self.predictions(spec, label, how), strict=True)
-        ):
-            status = "timeout" if withdrawn and i < 3 else "ok"
+        for i, (case, p) in enumerate(zip(self.cases[spec.names], predictions, strict=True)):
             (directory / f"{case.case_id}.json").write_text(
-                json.dumps(trace(spec, list(p.ranking), i, status))
+                json.dumps(trace(spec, list(p.ranking), i, "ok"))
             )
             o = case.gold[0].repo.split("/")[0]
             (directory / f"{case.case_id}.events.jsonl").write_text(
@@ -389,7 +381,6 @@ def test_plan_matches_the_registration_and_addendum() -> None:
     assert len(plan.CONFIRMATORY) == 6 and {c.metric for c in plan.CONFIRMATORY} == {plan.PRIMARY}
     assert len(plan.REGISTERED_AGENT_CELLS) == 17 and len(plan.AGENT_CELLS) == 19
     assert sum(not c.agent for c in plan.CELLS.values()) == 201
-    assert len(plan.S1_PASSES) == 5 and set(plan.S1_TOOL_BROKEN) <= set(plan.S1_PASSES)
     assert all(plan.PASSES[k].cell == k.split("/", 1)[1] for k in plan.PASSES)
 
 
@@ -734,13 +725,9 @@ def test_pending_passes_stop_scoring_unless_accepted(study: Study, no_prediction
 def test_withdrawn_areas_are_never_the_runs_root(study: Study) -> None:
     inputs = score.Inputs.load(study.inputs)
     with pytest.raises(SystemExit, match="withdrawn area"):
-        score.plan_passes(replace(inputs, runs_root=study.root / "runs" / plan.S1_AREA))
+        score.plan_passes(replace(inputs, runs_root=study.root / "runs" / "withdrawn-concurrency"))
     sources, _ = score.plan_passes(inputs)
-    assert all(plan.S1_AREA not in str(s.predictions) for cell in sources.values() for s in cell)
-    with_s1, _ = score.plan_passes(inputs, s1=True)
-    swapped = [s for cell in with_s1.values() for s in cell if s.as_written]
-    assert sorted(s.label for s in swapped) == sorted(plan.S1_PASSES)
-    assert all(plan.S1_AREA in s.predictions.parts for s in swapped)
+    assert all(s.predictions.parts[-4] == plan.TEST_AREA for cell in sources.values() for s in cell)
 
 
 def test_a_registered_pass_out_of_bounds_stops_scoring(study: Study, no_predictions: None) -> None:
@@ -771,17 +758,15 @@ def test_run_env_naming_another_commit_stops_scoring(study: Study, no_prediction
         env.write_text(saved)
 
 
-def test_an_exploratory_pass_out_of_bounds_is_dropped(study: Study) -> None:
-    inputs = score.Inputs.load(study.inputs)
-    cases = score.load_cases(inputs, plan.REGISTRATION)
+def test_an_exploratory_pass_out_of_bounds_stops_scoring(
+    study: Study, no_predictions: None
+) -> None:
     path = study.pass_dir("p1/u5000-real-l5-n50") / "t00.json"
     saved = path.read_text()
     try:
         path.write_text(json.dumps(json.loads(saved) | {"status": "timeout"}))
-        sources, _ = score.plan_passes(inputs)
-        _, notes = score.audit_passes(sources, cases, inputs)
-        assert [s.label for s in sources["u5000-real-l5-n50"]] == ["p2/u5000-real-l5-n50"]
-        assert any("dropped (exploratory)" in n for n in notes)
+        with pytest.raises(SystemExit, match="p1/u5000-real-l5-n50 \\(exploratory\\): 1 timeout"):
+            hreport.build(score.Inputs.load(study.inputs), plan.REGISTRATION)
     finally:
         path.write_text(saved)
 
@@ -825,7 +810,8 @@ def test_dry_run_reads_run_lists_and_opens_no_prediction_or_trace(
     keys = [k for k in plan.PASSES if not k.startswith("p2/")]
     first = study.run_list("test-p1", keys)
     second = study.run_list("test-p2", [k for k in plan.PASSES if k.startswith("p2/")])
-    withdrawn = study.run_list("withdrawn", list(plan.S1_PASSES), plan.S1_AREA)
+    gone = ["p1/u50-hidden-c1-L2", "p2/u5000-real-l5-n20"]
+    withdrawn = study.run_list("withdrawn", gone, "withdrawn-concurrency")
     out = study.root / "dry.json"
     assert (
         report.main(
@@ -837,7 +823,6 @@ def test_dry_run_reads_run_lists_and_opens_no_prediction_or_trace(
                 "--dry-run",
                 str(withdrawn),
                 str(study.inputs),
-                "--s1",
                 "--out",
                 str(out),
             ]
@@ -857,16 +842,14 @@ def test_dry_run_reads_run_lists_and_opens_no_prediction_or_trace(
     decisions = {(r["area"], r["pass"]): r["decision"] for r in record["lines"] if r["pass"]}
     assert sum(d == "scored" for d in decisions.values()) == 34
     assert sum(d.startswith("scored as exploratory") for d in decisions.values()) == 4
-    assert all(decisions[(plan.S1_AREA, k)] == "read by S1 (on)" for k in plan.S1_PASSES)
+    assert all(decisions[("withdrawn-concurrency", k)] == "withdrawn; never scored" for k in gone)
     assert all(not r["problems"] for r in record["lines"] if r["pass"]), [
         r for r in record["lines"] if r["problems"]
     ]
-    assert "Would score 34 registered passes" in text
+    assert "Would score 34 registered passes" in text and "0 test lines have problems" in text
     assert record["trace_dirs"] == ["{pass}"] and "puts its traces at `{pass}`" in text
+    assert record["inputs_problems"] == [] and "INPUTS.json: 0 problems" in text
     assert record["unlisted"] == []
-    assert [Path(p["path"]) for p in record["s1"]["passes"]] == [
-        study.pass_dir(k, plan.S1_AREA) for k in plan.S1_PASSES
-    ]
     assert "API_TOKEN" not in text and "do-not-read" not in text
 
 
@@ -885,36 +868,99 @@ def test_dry_run_flags_pending_and_wrong_lines(study: Study) -> None:
         )
         + "\n"
     )
-    _, record = runs.dry_run([path], study.root / "runs", {}, False)
+    _, record = runs.dry_run([path], study.root / "runs", {})
     decisions = [r["decision"] for r in record["lines"]]
     assert decisions[0].startswith("pending")
-    assert decisions[1] == decisions[2] == "line differs from its cell; check first"
+    assert decisions[1] == decisions[2] == "not scorable as is; see its problems"
     assert decisions[3] == "withdrawn; never scored" and decisions[4].startswith("not a pass line")
-    _, accepted = runs.dry_run([path], study.root / "runs", {PENDING[0]: "ok"}, False)
+    _, accepted = runs.dry_run([path], study.root / "runs", {PENDING[0]: "ok"})
     assert accepted["lines"][0]["decision"] == "scored"
 
 
-def test_dry_run_gives_the_trace_dir_and_checks_the_inputs_against_it(study: Study) -> None:
-    path = study.root / "traces-sub.txt"
+def test_check_inputs_names_what_scoring_would_not_find(study: Study) -> None:
+    assert score.check_inputs(score.Inputs.load(study.inputs)) == []
+    try:
+        broken = study.write_inputs(
+            costs=None,
+            static="static/missing-{cell}.jsonl",
+            universes={"real": "universes/real"},
+            accept={"p1/u50-hidden-c1-L2": "not pending"},
+        )
+        problems = score.check_inputs(score.Inputs.load(broken))
+    finally:
+        study.write_inputs()
+    single = [s.name for s in plan.CELLS.values() if not s.agent and s.draws == 1]
+    assert problems == [
+        "no costs",
+        f"{len(single)} static runs not found, such as {', '.join(single[:3])}",
+        "no hidden-name universes, so item 17 isn't computed for them",
+        "accept lists passes that aren't pending: p1/u50-hidden-c1-L2",
+    ]
+
+
+def test_trace_dir_defaults_to_the_traces_folder(study: Study, tmp_path: Path) -> None:
+    raw = json.loads(study.inputs.read_text())
+    del raw["trace_dir"]
+    path = tmp_path / "inputs.json"
+    path.write_text(json.dumps(raw))
+    assert score.Inputs.load(path).trace_dir == plan.TRACE_DIR == "{pass}/traces"
+
+
+def copy_passes(study: Study, keys: list[str], root: Path) -> None:
+    for key in keys:
+        shutil.copytree(study.pass_dir(key), root / plan.TEST_AREA / key)
+
+
+def test_dry_run_gives_the_trace_dir_and_checks_the_inputs_against_it(
+    study: Study, tmp_path: Path
+) -> None:
+    root, path = tmp_path / "runs", tmp_path / "traces-sub.txt"
     keys = ["p1/u5000-real-c2-hybrid-L4", "p2/u5000-real-c2-hybrid-L4"]
-    lines = [run_line(study.root / "runs", plan.TEST_AREA, k) for k in keys]
+    copy_passes(study, keys, root)
+    for key in keys:
+        d = root / plan.TEST_AREA / key
+        (d / "traces").mkdir()
+        for trace in d.glob("*.json"):
+            shutil.copy(trace, d / "traces" / trace.name)
     path.write_text(
         "".join(
-            line.replace(f"--trace-dir {d}", f"--trace-dir {d}/traces") + "\n"
-            for line, d in zip(lines, (study.pass_dir(k) for k in keys), strict=True)
+            run_line(root, plan.TEST_AREA, k).replace(
+                f"--trace-dir {root / plan.TEST_AREA / k}",
+                f"--trace-dir {root / plan.TEST_AREA / k}/traces",
+            )
+            + "\n"
+            for k in keys
         )
     )
-    text, record = runs.dry_run([path], study.root / "runs", {}, False)
+    text, record = runs.dry_run([path], root, {})
     assert record["trace_dirs"] == ["{pass}/traces"]
     assert "puts its traces at `{pass}/traces`" in text
     assert [r["decision"] for r in record["lines"]] == ["scored", "scored"]
-    _, wrong = runs.dry_run([path], study.root / "runs", {}, False, None, "{pass}")
-    assert [r["decision"] for r in wrong["lines"]] == [
-        "line differs from its cell; check first"
-    ] * 2
-    assert "INPUTS.json's trace_dir is {pass}" in wrong["lines"][0]["problems"][0]
-    _, right = runs.dry_run([path], study.root / "runs", {}, False, None, "{pass}/traces")
+    for key in keys:
+        for trace in (root / plan.TEST_AREA / key).glob("*.json"):
+            trace.unlink()
+    _, wrong = runs.dry_run([path], root, {}, trace_template="{pass}")
+    assert [r["decision"] for r in wrong["lines"]] == ["not scorable as is; see its problems"] * 2
+    problems = wrong["lines"][0]["problems"]
+    assert "INPUTS.json's trace_dir is {pass}" in problems[0]
+    assert any(p.startswith(f"0 traces at {root / plan.TEST_AREA / keys[0]} ") for p in problems)
+    _, right = runs.dry_run([path], root, {}, trace_template="{pass}/traces")
     assert all(r["decision"] == "scored" and not r["problems"] for r in right["lines"])
+
+
+def test_dry_run_flags_what_scoring_would_not_find(study: Study, tmp_path: Path) -> None:
+    key, root, path = "p1/u5000-real-c2-hybrid-L4", tmp_path / "runs", tmp_path / "list.txt"
+    path.write_text(run_line(root, plan.TEST_AREA, key) + "\n")
+    _, absent = runs.dry_run([path], root, {})
+    assert absent["lines"][0]["decision"] == "not scorable as is; see its problems"
+    assert absent["lines"][0]["problems"][0].startswith("no pass directory at")
+    text, moved = runs.dry_run([path], study.root / "runs", {})
+    assert any("not runs_root" in p for p in moved["lines"][0]["problems"])
+    assert "Would score 0 registered passes" in text
+    copy_passes(study, [key], root)
+    (root / plan.TEST_AREA / key / plan.PRED_FILE).unlink()
+    _, partial = runs.dry_run([path], root, {})
+    assert partial["lines"][0]["problems"] == [f"no {plan.PRED_FILE}"]
 
 
 # End to end on the synthetic study ------------------------------------------------------
@@ -929,7 +975,29 @@ def test_confirmatory_results_on_known_rankings(built: tuple[hreport.Report, Pat
     assert "< 0.0005" in result.tables["confirmatory"]
     assert sum(r["family"] == "confirmatory" for r in rows.values()) == 6
     assert all(r["p_one_sided"] == "" for r in rows.values() if r["family"] != "confirmatory")
-    assert not [s for s in result.skipped if "Holm" in s]
+
+
+def test_holm_needs_all_six_confirmatory_tests(built: tuple[hreport.Report, Path]) -> None:
+    result, _ = built
+    h1 = next(c for c in plan.COMPARISONS if c.id == "H1-real")
+    partial = {k: v for k, v in result.results.items() if k != h1.a}
+    with pytest.raises(score.ScoringError, match="all 6 tests"):
+        score.comparisons(partial, result.cases["real"].ecosystem)
+
+
+def test_a_prediction_from_another_ranker_stops_scoring(study: Study, tmp_path: Path) -> None:
+    inputs = score.Inputs.load(study.inputs)
+    spec = next(s for s in plan.CELLS.values() if not s.agent and s.draws == 1)
+    rows = [
+        json.loads(line)
+        for line in Path(inputs.static.replace("{cell}", spec.name)).read_text().splitlines()
+    ]
+    rows[0]["ranker"] = "another-ranker"
+    pred = tmp_path / "pred.jsonl"
+    pred.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    cases = score.load_cases(inputs, plan.REGISTRATION)[spec.names]
+    with pytest.raises(score.ScoringError, match=f"ranker another-ranker, not {spec.ranker}"):
+        score._rankings(score.Source(spec.name, pred), spec, cases)
 
 
 def test_agent_cells_pool_each_case_over_both_passes(built: tuple[hreport.Report, Path]) -> None:
@@ -1052,33 +1120,11 @@ def test_outputs_are_written(built: tuple[hreport.Report, Path]) -> None:
     assert set(record["choices"]) == set(plan.CHOICES)
     assert (out / "frontier").is_dir() and record["frontier"]
     text = (out / "report.md").read_text()
-    assert "S1 is off (the default)" in text
+    assert "S1" not in text and "s1" not in set(result.tables)
     assert not any(token in text for token in (" nan", "nan ", "[nan", "inf]", " inf "))
     assert "kept; no run.env by design" in result.tables["passes"]
     misses = read_csv(out / "misses.csv")
     assert all(r["status"] == "ok" for r in misses if r["cell"] == "u250-real-l5-n10")
-
-
-def test_s1_is_off_by_default_and_minimal_when_on(
-    study: Study, built: tuple[hreport.Report, Path]
-) -> None:
-    base, _ = built
-    assert base.s1 is None
-    with_s1 = hreport.build(score.Inputs.load(study.inputs), plan.REGISTRATION, s1=True)
-    s1 = with_s1.s1
-    assert sorted(a.key for a in s1["audits"]) == sorted(plan.S1_PASSES)
-    assert all(len(a.timeouts) == 3 and a.traces == plan.N_CASES for a in s1["audits"])
-    touched = {k.split("/", 1)[1] for k in plan.S1_PASSES}
-    assert set(s1["results"]) == touched
-    swapped = s1["results"]["u5000-real-l5-n20"]
-    assert swapped.sources == ["p1/u5000-real-l5-n20", "p2/u5000-real-l5-n20"]
-    p2 = swapped.per_source[1]
-    assert all(p2[f"t{i:02d}"][plan.PRIMARY] == 0.0 for i in range(plan.N_CASES))
-    assert p2["t58"]["LastRequiredRank"] == plan.LAST_RANK_CAP
-    assert len(s1["diffs"]) == 6
-    assert (
-        with_s1.results["u5000-real-l5-n20"].per_case == base.results["u5000-real-l5-n20"].per_case
-    )
 
 
 def test_cli_checks_the_registration_then_refuses_dirty_code(

@@ -41,11 +41,10 @@ from heldout_plan import (
     NAMES,
     PASSES,
     PRED_FILE,
-    S1_AREA,
-    S1_PASSES,
     SEED,
     TEST_AREA,
     TOOLS,
+    TRACE_DIR,
     CellSpec,
     Comparison,
     RegisteredPass,
@@ -149,7 +148,7 @@ class Inputs:
             draws["template"] = t(draws["template"])
         return cls(
             runs_root=p(raw["runs_root"]),  # type: ignore[arg-type]
-            trace_dir=raw.get("trace_dir", "{pass}"),
+            trace_dir=raw.get("trace_dir", TRACE_DIR),
             cases={k: p(v) for k, v in raw["cases"].items()},  # type: ignore[misc]
             static=t(raw["static"]),
             case_map=p(raw.get("case_map")),
@@ -385,14 +384,13 @@ class Source:
     predictions: Path
     traces: Path | None = None
     registered: RegisteredPass | None = None
-    as_written: bool = False
 
 
 def plan_passes(
-    inputs: Inputs, allow_pending: bool = False, s1: bool = False
+    inputs: Inputs, allow_pending: bool = False
 ) -> tuple[dict[str, list[Source]], list[str]]:
     """Each agent cell's accepted passes, and notes on what was left out and why. Only
-    ``runs_root/test/`` is read; S1 swaps in its five passes from ``withdrawn-concurrency``."""
+    ``runs_root/test/`` is read."""
     if any(part.startswith("withdrawn-") for part in inputs.runs_root.resolve().parts):
         raise ScoringError(f"runs_root {inputs.runs_root} is a withdrawn area")
     unknown = sorted(set(inputs.accept) - {k for k, p in PASSES.items() if p.status == "pending"})
@@ -409,21 +407,12 @@ def plan_passes(
         if key in pending:
             notes.append(f"{key} left out: pending (--allow-pending)")
             continue
-        area, as_written = TEST_AREA, False
-        if s1 and key in S1_PASSES:
-            area, as_written = S1_AREA, True
-        directory = pass_dir(inputs.runs_root, key, area)
+        directory = pass_dir(inputs.runs_root, key, TEST_AREA)
         resolved = directory.resolve()
-        if area == TEST_AREA and any(p.startswith("withdrawn-") for p in resolved.parts):
+        if any(p.startswith("withdrawn-") for p in resolved.parts):
             raise ScoringError(f"{directory} resolves into a withdrawn area: {resolved}")
         sources[registered.cell].append(
-            Source(
-                key,
-                directory / PRED_FILE,
-                trace_dir(directory, inputs.trace_dir),
-                registered,
-                as_written,
-            )
+            Source(key, directory / PRED_FILE, trace_dir(directory, inputs.trace_dir), registered)
         )
     return sources, notes
 
@@ -431,13 +420,12 @@ def plan_passes(
 def audit_passes(
     sources: Mapping[str, list[Source]], cases: Mapping[str, CaseSet], inputs: Inputs
 ) -> tuple[list[PassAudit], list[str]]:
-    """Every pass against its bounds, from traces only. A failing registered pass stops
-    scoring; a failing exploratory one is dropped with a note. S1's passes are scored as
-    written, so their audits are reported, not enforced."""
+    """Every pass against its bounds, from traces only. Any failing pass, registered or
+    exploratory, stops scoring."""
     audits, failures, notes = [], [], []
     for cell, cell_sources in sources.items():
         spec = CELLS[cell]
-        for source in list(cell_sources):
+        for source in cell_sources:
             audit = audit_pass(
                 spec,
                 source.registered,
@@ -455,13 +443,9 @@ def audit_passes(
                         "rerun bound doesn't apply"
                     )
             audits.append(audit)
-            if not audit.problems or source.as_written:
-                continue
-            if spec.registered:
-                failures.append(f"{source.label}: {'; '.join(audit.problems)}")
-            else:
-                cell_sources.remove(source)
-                notes.append(f"{source.label} dropped (exploratory): {'; '.join(audit.problems)}")
+            if audit.problems:
+                kind = "" if spec.registered else " (exploratory)"
+                failures.append(f"{source.label}{kind}: {'; '.join(audit.problems)}")
     if failures:
         raise ScoringError("passes fail their bounds:\n  " + "\n  ".join(failures))
     return audits, notes
@@ -476,6 +460,50 @@ def static_sources(spec: CellSpec, inputs: Inputs) -> list[Source]:
         raise ScoringError(f"{spec.name} needs {spec.draws} draws in static_draws.draws")
     template = draws["template"].replace("{cell}", spec.name)
     return [Source(f"{spec.name}#{d}", Path(template.replace("{draw}", d))) for d in labels]
+
+
+def check_inputs(inputs: Inputs) -> list[str]:
+    """What scoring would find missing in ``inputs``. Paths are only checked to exist; no
+    file is opened."""
+    problems = []
+
+    def need(path: Path | None, what: str) -> None:
+        if path is None:
+            problems.append(f"no {what}")
+        elif not path.exists():
+            problems.append(f"{what}: nothing at {path}")
+
+    names = sorted({s.names for s in CELLS.values()})
+    for n in names:
+        need(inputs.cases.get(n), f"{n}-name cases")
+    if "hidden" in names:
+        need(inputs.case_map, "case_map")
+    need(inputs.merge_dates, "merge_dates")
+    need(inputs.costs, "costs")
+    for k, v in inputs.reviewed.items():
+        need(v, f"reviewed {k}")
+    absent = []
+    for spec in CELLS.values():
+        if spec.agent:
+            continue
+        try:
+            absent += [s.label for s in static_sources(spec, inputs) if not s.predictions.is_file()]
+        except ScoringError as e:
+            problems.append(str(e))
+    if absent:
+        problems.append(f"{len(absent)} static runs not found, such as {', '.join(absent[:3])}")
+    for n in names:
+        if n not in inputs.universes:
+            problems.append(f"no {n}-name universes, so item 17 isn't computed for them")
+            continue
+        for size in sorted({s.size for s in CELLS.values() if s.names == n}):
+            root = universe_root(inputs, n, size)
+            if root is not None and not root.is_dir():
+                problems.append(f"{n}-name U{size} universes: nothing at {root}")
+    unknown = sorted(set(inputs.accept) - {k for k, p in PASSES.items() if p.status == "pending"})
+    if unknown:
+        problems.append(f"accept lists passes that aren't pending: {', '.join(unknown)}")
+    return problems
 
 
 # Scoring a cell -----------------------------------------------------------------------
@@ -498,6 +526,8 @@ def _rankings(source: Source, spec: CellSpec, case_set: CaseSet) -> dict[str, li
         raise ScoringError(f"{source.label}: no predictions at {source.predictions}")
     out = {}
     for p in read_predictions(source.predictions):
+        if p.ranker != spec.ranker:
+            raise ScoringError(f"{source.label}: ranker {p.ranker}, not {spec.ranker}")
         if p.case_id not in case_set.cases:
             raise ScoringError(
                 f"{source.label}: {p.case_id} isn't a {case_set.names}-name test case"
@@ -506,10 +536,8 @@ def _rankings(source: Source, spec: CellSpec, case_set: CaseSet) -> dict[str, li
             raise ScoringError(f"{source.label}: universe size {p.universe_size}, not {spec.size}")
         out[p.case_id] = p.ranking
     missing = sorted(set(case_set.cases) - set(out))
-    if missing and not source.as_written:
+    if missing:
         raise ScoringError(f"{source.label}: {len(missing)} test cases have no prediction")
-    for case_id in missing:
-        out[case_id] = []
     return out
 
 
@@ -532,7 +560,6 @@ def score_cell(
     universes: Mapping[str, CaseUniverse] | None,
     reviewed: Mapping[str, tuple] | None,
     root: Path | None,
-    read_traces: bool = True,
 ) -> CellResult:
     """Stream each source's rankings into per-case values, then pool them per case."""
     result = CellResult(spec, [s.label for s in sources], {}, [])
@@ -540,7 +567,7 @@ def score_cell(
         result.notes.append("no pass to score")
         return result
     costs: list[dict[str, dict[str, float]]] = []
-    agent = spec.agent and read_traces
+    agent = spec.agent
     for source in sources:
         rankings = _rankings(source, spec, case_set)
         traces = {}
@@ -568,7 +595,7 @@ def score_cell(
                     spec.method == "l5",
                 )
                 result.first_search.append((real, source.label, search))
-            elif not spec.agent:
+            else:
                 match = _OPEN.fullmatch(spec.method)
                 if match and int(match[2]) and root is not None:
                     requests, size = fetch(root, own, list(ranking[: int(match[2])]), "L4")
@@ -725,7 +752,7 @@ def comparisons(
         r.comparison.id: r.p_one_sided for r in rows if r.comparison.family == "confirmatory"
     }
     if len(confirmatory) != 6:
-        skipped.append(f"Holm family has {len(confirmatory)} of 6 tests")
+        raise ScoringError(f"Holm's family needs all 6 tests (§4); {len(confirmatory)} ran")
     adjusted = holm(confirmatory, ALPHA)  # type: ignore[arg-type]
     out = []
     for r in rows:
@@ -853,27 +880,3 @@ def frontier_rows(
             )
         )
     return rows
-
-
-# S1 -----------------------------------------------------------------------------------
-
-
-def s1_results(
-    inputs: Inputs,
-    cases: Mapping[str, CaseSet],
-    results: Mapping[str, CellResult],
-    allow_pending: bool,
-) -> dict[str, CellResult]:
-    """S1, off by default: the five concurrency-withdrawn passes scored as written in
-    place of their reruns, everything else as registered. Only the cells they touch are
-    rescored; item 17's universe values are left out of S1."""
-    sources, _ = plan_passes(inputs, allow_pending, s1=True)
-    touched = {k.split("/", 1)[1] for k in S1_PASSES}
-    rescored = {
-        name: score_cell(
-            CELLS[name], sources[name], cases[CELLS[name].names], None, None, None, False
-        )
-        for name in sorted(touched)
-        if CELLS[name].names in cases
-    }
-    return {**results, **rescored}

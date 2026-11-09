@@ -29,6 +29,7 @@ MEMORY_SPLIT = {"before": 25, "after": 34}
 TEST_AREA = "test"
 PRED_FILE = "pred.jsonl"
 RUN_ENV = "run.env"
+TRACE_DIR = "{pass}/traces"
 AGENT_RANKER = "cursor-agent"
 AGENT_METHODS = ("c1", "c2", "l5")
 TOOLS = {"c2": "search_repos", "l5": "open_repo"}
@@ -356,12 +357,6 @@ MAX_TIMEOUT_CASES = 0
 PROVIDER_ERROR_ALLOWANCE = {"u1000-hidden-c1-L4": 29}
 MAX_NO_CALL_CASES = 2
 
-# Sensitivity analysis S1, off by default: the five passes withdrawn under entry 7's
-# concurrency rule, scored as written in place of their reruns.
-S1_AREA = "withdrawn-concurrency"
-S1_PASSES = tuple(k for k, p in PASSES.items() if re.search(r"\bconcurrency\b", p.withdrawn))
-S1_TOOL_BROKEN = tuple(k for k in S1_PASSES if "concurrency†" in PASSES[k].withdrawn)
-
 
 def provider_error_allowance(cell: str) -> int:
     return PROVIDER_ERROR_ALLOWANCE.get(cell, 0)
@@ -371,7 +366,6 @@ def provider_error_allowance(cell: str) -> int:
 CHOICES = {
     "pooling": "per case, the mean over both passes (and over the 5 bm25f-deps-random draws); "
     "a deviation (addendum item 15), kept as the primary analysis",
-    "s1": "off unless --s1",
     "bootstrap": f"{N_BOOT} resamples of the 30 test ecosystems, seed {SEED}, numpy's "
     "default linear quantile; every cell and comparison reuses the same draws",
     "subgroups": "a subgroup's interval resamples its own ecosystems (same count and seed); "
@@ -383,6 +377,8 @@ CHOICES = {
     "mechanisms": "at U5000, under both name conditions, on CR@10",
     "secondary-adjustment": "none; only the 6 confirmatory tests are Holm-adjusted",
     "missing": "a missing prediction stops scoring; no imputation",
+    "exploratory-bounds": "an exploratory pass that fails its bounds stops scoring, as a "
+    "registered one does",
     "pending": "scoring stops while a registered pass is pending; the reported run lists the "
     "audited u50-real-c1-L2 reruns under accept and doesn't use --allow-pending",
     "run-env-commit": "a run.env naming no commit is scored and noted; one naming another "
