@@ -39,4 +39,4 @@ Add lessons in the experiment's own PR, when it finishes.
 
 ## Sources
 
-Link PRs by full URL. Plans and reports live in the Experiments Project's agent store, not in this repo. A source written as store `docs/v3-contract-joins.md` means `/cursor/stores/bc-816ea066-520c-4366-a62c-cdc514dd7aaf/docs/v3-contract-joins.md` on the Project's agents. Name the section too. Lessons the coordinator saw but nobody wrote down cite "coordinator's notes".
+Link PRs by full URL. Plans and reports live in the Experiments Project's agent store, not in this repo. A source written as store `docs/v3-contract-joins.md` means `/cursor/stores/bc-c364fa0b-55a8-56e7-96c4-2b320bedf063/docs/v3-contract-joins.md` on the Project's agents. Name the section too. Lessons the coordinator saw but nobody wrote down cite "coordinator's notes".
