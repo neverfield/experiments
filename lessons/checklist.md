@@ -9,6 +9,13 @@ Read this before designing an experiment, and answer each line in a sentence or 
 - [ ] For each method, count the cases it could possibly change before building it. ([why](method/measure-a-methods-ceiling-before-building-it.md))
 - [ ] For each method, write the result that would drop it. ([why](process/record-negative-results-and-stop-rules.md))
 
+## The benchmark, before building any method
+
+- [ ] Write down the data the question implies (candidates and labels as the deployment would see them), and spend a small, fixed effort testing whether existing links can supply it before taking a convenient proxy. If you run only one check in this section, run this one. Say in the plan which part of the question a proxy can't answer. ([why](method/check-whether-data-shaped-like-the-question-can-be-built-before-taking-a-proxy.md))
+- [ ] Write a short decision analysis of the real use before choosing the metric: what is done with each predicted item, what a miss and a false positive cost, and how many targets real requests have, single targets included. Pick a metric that prices both errors, and check that the cases and the prompt match that mix. ([why](measurement/choose-the-metric-from-how-the-output-will-be-used.md))
+- [ ] Run shortcut probes on dev: a closed-book model given only the names, a ranker on one feature that isn't the request (doc bytes, size) with its AUC, an oracle for any easy first stage (such as the owner, then random and the baseline within it), and the share of requests that name a target. If one comes close to the expected winner, change the benchmark first. ([why](method/probe-a-benchmark-for-shortcuts-before-building-methods-on-it.md))
+- [ ] Pilot the main methods at the planned caps on about 10 cases, twice each, before laying out a large grid. Log which limit ends each run, work out the smallest difference the sample can detect, and cut the grid to the contrasts it can resolve. ([why](measurement/pilot-the-run-budget-and-the-samples-power-before-a-large-grid.md))
+
 ## Methods and controls
 
 - [ ] Give each method one row: inputs, tools and limits. Check what the model really receives (token window, empty fields, tokenizer). ([why](process/write-down-what-each-method-sees-and-can-do.md), [why](measurement/check-what-each-model-actually-sees.md))
