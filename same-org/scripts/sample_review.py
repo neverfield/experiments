@@ -67,6 +67,9 @@ def main() -> None:
     ap.add_argument("--max-targets", type=int, default=12,
                     help="skip cases with more target repos than this (reported separately)")
     ap.add_argument("--max-prs-shown", type=int, default=12)
+    ap.add_argument("--parts", type=int, default=1, help="also split the sheet for parallel raters")
+    ap.add_argument("--overlap", type=int, default=0,
+                    help="also write this many random blocks to sheet-overlap.md for a second rater")
     ap.add_argument("--out", required=True)
     ap.add_argument("--cache", default="~/so-cache")
     a = ap.parse_args()
@@ -102,9 +105,18 @@ def main() -> None:
     need = sorted(k for k in shown if k not in known)
     gh = GitHub(a.cache)
     pr_info = {**{k: known[k] for k in shown if k in known}, **fetch_prs(gh, need)}
-    lines = [f"# Review sheet: {len(sample)} cases, seed {a.seed}", ""]
+
+    # One block per distinct (PRs, targets), shown under a shuffled ID that hides the method.
+    groups: dict[tuple, list[dict]] = {}
     for c in sample:
-        lines.append(f"## {c['case_id']}")
+        groups.setdefault((tuple(c["prs"]), tuple(c["targets"])), []).append(c)
+    order = sorted(groups)
+    random.Random(a.seed + 1).shuffle(order)
+    blocks = {f"R{i + 1:03d}": groups[k] for i, k in enumerate(order)}
+
+    def render(bid: str, cs: list[dict]) -> list[str]:
+        c = next((x for x in cs if x.get("hub")), cs[0])
+        lines = [f"## {bid}"]
         lines.append(f"targets ({c['n_targets']}): {', '.join(c['targets'])} | prs {len(c['prs'])}"
                      f" | span {c.get('span_days')} days | authors {c.get('authors')}")
         h = c.get("hub")
@@ -113,7 +125,7 @@ def main() -> None:
             lines.append(f"hub: {h['repo']} | {h['title']} | created {h['createdAt'][:10]} | "
                          f"labels {h['labels'][:6]} | pre_work={h['pre_work']}")
             lines.append(f"hub body: {squash(hub.get('body'), 400)}")
-        for e in c.get("edges", [])[:8]:
+        for e in next((x.get("edges") for x in cs if x.get("edges")), [])[:8]:
             lines.append(f"edge: {e[0]} -> {e[1]} ({e[2]})")
         for k in c["prs"][: a.max_prs_shown]:
             p = pr_info.get(k)
@@ -131,12 +143,27 @@ def main() -> None:
         if len(c["prs"]) > a.max_prs_shown:
             lines.append(f"- … {len(c['prs']) - a.max_prs_shown} more PRs")
         lines.append("")
-    (out / "sheet.md").write_text("\n".join(lines))
+        return lines
+
+    ids = list(blocks)
+    parts = [ids[i:: a.parts] for i in range(a.parts)]
+    files = {"sheet.md": ids}
+    if a.parts > 1:
+        files.update({f"sheet-part{i + 1}.md": p for i, p in enumerate(parts)})
+    if a.overlap:
+        files["sheet-overlap.md"] = sorted(random.Random(a.seed + 2).sample(ids, min(a.overlap, len(ids))))
+    for name, bids in files.items():
+        lines = [f"# Review sheet: {len(bids)} blocks, seed {a.seed}", ""]
+        for bid in bids:
+            lines += render(bid, blocks[bid])
+        (out / name).write_text("\n".join(lines))
     (out / "sample.json").write_text(json.dumps(
         {"seed": a.seed, "per_cell": a.per_cell, "max_targets": a.max_targets,
-         "cell_pool": cell_pool, "case_ids": [c["case_id"] for c in sample]}, indent=1))
-    print(json.dumps({"sampled": len(sample), "prs_shown": len(shown), "prs_fetched": len(need),
-                      "spend": gh.spend.as_dict()}))
+         "cell_pool": cell_pool, "case_ids": [c["case_id"] for c in sample],
+         "blocks": {b: [c["case_id"] for c in cs] for b, cs in blocks.items()},
+         "files": files}, indent=1))
+    print(json.dumps({"sampled": len(sample), "blocks": len(blocks), "prs_shown": len(shown),
+                      "prs_fetched": len(need), "spend": gh.spend.as_dict()}))
 
 
 if __name__ == "__main__":

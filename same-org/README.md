@@ -14,8 +14,9 @@ An "org" argument is a GitHub owner, or a group from `same_org/orgs.py` (`k8s` i
 | `expand_hubs.py` | Resolves the in-org issues and PRs that usable PRs (not forks, bots or backports) reference, except port, revert and supersedes references, with each issue's cross-reference timeline | about 1 GraphQL point per 50 items |
 | `build_cases.py` | Groups PRs into cases by seven label methods (below), keeping each link's contexts and each PR-to-PR edge | none |
 | `analyze.py` | Per method: multi-repo cases, target counts, span, single-repo rate, pre-work request rate, whether requests name targets, a names-only BM25 ranker over the org's active repos | none |
-| `sample_review.py` | Seeded sample of multi-repo cases per org and method, rendered as a review sheet (`sheet.md`, `sample.json`) | only PRs missing from the mined data |
-| `score_review.py` | Precision per method, pooled and per org, strict and lenient, with Wilson 95% intervals, from `verdicts.json` keyed on the sample's case IDs | none |
+| `sample_review.py` | Seeded sample of multi-repo cases per org and method, rendered as a review sheet of shuffled blocks that hide the method, one per distinct change (`sheet.md`, `sample.json`). `--parts` splits it for parallel raters; `--overlap` writes a subset for a second rater. How to judge: `REVIEW.md` | only PRs missing from the mined data |
+| `score_review.py` | Precision per method, pooled and per org, strict and lenient, with Wilson 95% intervals and kinds, from `verdicts.json` keyed on block IDs; agreement and kappa against `--second` raters | none |
+| `report_tables.py` | Prints the report's tables from the outputs above | none |
 | `doc_profile.py` | README, docs and manifest bytes per repo from one git-tree request each, for an org's multi-repo targets and two control pools (other active repos; other repos that merged a PR in the window), with each feature's AUC | 1 REST request per repo |
 | `clone_cost.py` | Times a depth-1, blobless, sparse git clone of the README, docs and manifests per repo | no API quota |
 
@@ -39,9 +40,9 @@ python3 scripts/mine_prs.py --org grafana --since 2026-06-01 --until 2026-08-31 
 python3 scripts/expand_hubs.py --org grafana --mined ~/so/mined --workers 4
 python3 scripts/build_cases.py --org grafana --mined ~/so/mined --census ~/so/census
 python3 scripts/analyze.py --orgs grafana k8s --mined ~/so/mined --census ~/so/census --out ~/so/analysis.json
-python3 scripts/sample_review.py --orgs grafana k8s --mined ~/so/mined --out ~/so/review --per-cell 6
-# hand-check ~/so/review/sheet.md into ~/so/review/verdicts.json: {"<case_id>": {"v": "same|partial|not", "why": "..."}}
-python3 scripts/score_review.py --review ~/so/review --out ~/so/review/scores.json
+python3 scripts/sample_review.py --orgs grafana k8s --mined ~/so/mined --out ~/so/review --per-cell 6 --parts 4 --overlap 40
+# hand-check each part into ~/so/review/verdicts.json, per REVIEW.md, and the overlap into verdicts-b.json
+python3 scripts/score_review.py --review ~/so/review --second ~/so/review/verdicts-b.json --out ~/so/review/scores.json
 python3 scripts/doc_profile.py --org grafana --mined ~/so/mined --census ~/so/census --out ~/so/docs/grafana.jsonl
 python3 scripts/clone_cost.py --repos-file ~/so/docs/grafana.jsonl --limit 30 --out ~/so/clone-cost.jsonl
 ```
