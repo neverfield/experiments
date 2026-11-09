@@ -17,6 +17,7 @@ import argparse
 import gzip
 import json
 import sys
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -147,7 +148,8 @@ def main() -> None:
                 node["in_window"] = (node.get("url") or "").lower() in mined_urls
                 out_rows.append(node)
             if done % 25 == 0:
-                print(f"[expand] {a.org} {done + 1}/{len(chunks)} batches "
+                print(f"[expand] {time.strftime('%H:%M:%S')} {a.org} "
+                      f"{done + 1}/{len(chunks)} batches "
                       f"spend={gh.spend.as_dict()}", file=sys.stderr, flush=True)
 
     with gzip.open(d / "hubs.jsonl.gz", "wt") as f:
