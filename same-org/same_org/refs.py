@@ -135,6 +135,16 @@ def extract_keys(text: str | None) -> list[str]:
     return list(dict.fromkeys(keys))
 
 
+PORT_TITLE = re.compile(
+    r"^\s*(?:\[[^\]]*(?:backport|cherry|release-|\d+\.\d+)[^\]]*\]|backport|cherry-?pick|"
+    r"revert\b|\[revert|automated cherry pick|.*\(backport\b|.*\bbackport (?:of|to)\b)",
+    re.I,
+)
+
+# Contexts that link copies or undo a change rather than parts of one change.
+EXCLUDED_CTX = {"port", "revert", "supersedes"}
+
+
 GENERIC_BRANCHES = re.compile(
     r"^(?:main|master|develop|dev|trunk|patch-\d+|fix|bugfix|hotfix|feature|update|test|wip|"
     r"release|release-\d.*|v?\d+(?:\.\d+)*(?:\.x)?|backport.*|dependabot/.*|renovate/.*|"

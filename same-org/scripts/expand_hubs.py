@@ -4,6 +4,10 @@ For each referenced item it fetches the type (issue or PR), title, body, dates a
 for issues, every PR anywhere in GitHub that cross-referenced or connected to it, with its
 repository and merge state. That lets a hub's label include PRs merged outside the mining window.
 
+Only references that `build_cases.py` can use are resolved: those from non-bot, non-fork PRs
+whose titles aren't backports or reverts, and not in a port, revert or supersedes context. A
+batch of 50 items costs 1 GraphQL point (each item opens at most two connections).
+
     python3 scripts/expand_hubs.py --org grafana --mined ~/so/mined
 """
 
@@ -14,11 +18,13 @@ import gzip
 import json
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from same_org.gh import GitHub  # noqa: E402
-from same_org.refs import extract_refs  # noqa: E402
+from same_org.orgs import in_owners, owners_of  # noqa: E402
+from same_org.refs import EXCLUDED_CTX, PORT_TITLE, extract_refs, is_bot  # noqa: E402
 
 PR_FIELDS = """number title createdAt mergedAt merged url
   author { login __typename } repository { nameWithOwner }
@@ -59,59 +65,75 @@ def batch_query(items: list[tuple[str, str, int]]) -> str:
     return "query { " + "\n".join(parts) + " }"
 
 
+def usable_window_pr(pr: dict) -> bool:
+    a = pr.get("author") or {}
+    return not (
+        pr["repository"].get("isFork")
+        or is_bot(a.get("login"), a.get("__typename"))
+        or PORT_TITLE.search(pr.get("title") or "")
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--org", required=True)
     ap.add_argument("--mined", required=True)
     ap.add_argument("--cache", default="~/so-cache")
-    ap.add_argument("--batch", type=int, default=20)
+    ap.add_argument("--batch", type=int, default=50)
+    ap.add_argument("--workers", type=int, default=4)
     a = ap.parse_args()
 
     d = Path(a.mined).expanduser() / a.org
     prs = [json.loads(line) for line in gzip.open(d / "prs.jsonl.gz", "rt")]
-    org = a.org.lower()
+    owners = owners_of(a.org)
     wanted: Counter[str] = Counter()
-    for pr in prs:
+    usable = [pr for pr in prs if usable_window_pr(pr)]
+    for pr in usable:
         repo = pr["repository"]["nameWithOwner"]
         for r in extract_refs(f"{pr['title']}\n{pr['body']}", repo):
-            if r.owner.lower() == org:
+            if r.owner.lower() in owners and r.context not in EXCLUDED_CTX:
                 wanted[r.target] += 1
         for n in (pr.get("closingIssuesReferences") or {}).get("nodes") or []:
-            if n["repository"]["nameWithOwner"].lower().startswith(org + "/"):
+            if in_owners(n["repository"]["nameWithOwner"], owners):
                 wanted[f"{n['repository']['nameWithOwner'].lower()}#{n['number']}"] += 1
     mined_urls = {p["url"].lower() for p in prs}
     targets = sorted(wanted)
-    print(f"[expand] {a.org}: {len(prs)} PRs reference {len(targets)} in-org items",
-          file=sys.stderr)
+    print(f"[expand] {a.org}: {len(usable)} of {len(prs)} PRs usable; they reference "
+          f"{len(targets)} in-org items", file=sys.stderr)
 
     gh = GitHub(a.cache)
-    out_rows = []
-    missing = errors = 0
-    for i in range(0, len(targets), a.batch):
-        chunk = targets[i : i + a.batch]
+    chunks = [targets[i : i + a.batch] for i in range(0, len(targets), a.batch)]
+
+    def run(chunk: list[str]):
         items = []
         for t in chunk:
             rn, num = t.rsplit("#", 1)
             owner, name = rn.split("/", 1)
             items.append((owner, name, int(num)))
         res = gh.graphql(batch_query(items), kind="hub_batch")
-        data = res.get("data") or {}
-        if not data and res.get("errors"):
-            errors += len(chunk)
-            continue
-        for j, t in enumerate(chunk):
-            node = (data.get(f"r{j}") or {}).get("issueOrPullRequest")
-            if node is None:
-                missing += 1
-                out_rows.append({"key": t, "missing": True, "refs_from_window": wanted[t]})
+        return chunk, res
+
+    out_rows = []
+    missing = errors = 0
+    with ThreadPoolExecutor(a.workers) as ex:
+        for done, (chunk, res) in enumerate(ex.map(run, chunks)):
+            data = res.get("data") or {}
+            if not data and res.get("errors"):
+                errors += len(chunk)
                 continue
-            node["key"] = t
-            node["refs_from_window"] = wanted[t]
-            node["in_window"] = (node.get("url") or "").lower() in mined_urls
-            out_rows.append(node)
-        if (i // a.batch) % 25 == 0:
-            print(f"[expand] {i + len(chunk)}/{len(targets)} spend={gh.spend.as_dict()}",
-                  file=sys.stderr, flush=True)
+            for j, t in enumerate(chunk):
+                node = (data.get(f"r{j}") or {}).get("issueOrPullRequest")
+                if node is None:
+                    missing += 1
+                    out_rows.append({"key": t, "missing": True, "refs_from_window": wanted[t]})
+                    continue
+                node["key"] = t
+                node["refs_from_window"] = wanted[t]
+                node["in_window"] = (node.get("url") or "").lower() in mined_urls
+                out_rows.append(node)
+            if done % 25 == 0:
+                print(f"[expand] {a.org} {done + 1}/{len(chunks)} batches "
+                      f"spend={gh.spend.as_dict()}", file=sys.stderr, flush=True)
 
     with gzip.open(d / "hubs.jsonl.gz", "wt") as f:
         for r in out_rows:
@@ -121,7 +143,8 @@ def main() -> None:
         if r.get("__typename") == "Issue" and r["timelineItems"]["totalCount"] > 100
     )
     summary = {
-        "org": a.org, "targets": len(targets), "resolved": len(out_rows) - missing,
+        "org": a.org, "window_prs": len(prs), "usable_prs": len(usable),
+        "targets": len(targets), "resolved": len(out_rows) - missing,
         "missing": missing, "batch_errors": errors, "timeline_truncated": trunc,
         "types": Counter(r.get("__typename", "missing") for r in out_rows),
         "spend": gh.spend.as_dict(),

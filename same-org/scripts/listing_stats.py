@@ -9,9 +9,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from same_org.orgs import load_census  # noqa: E402
 
 
 def main() -> None:
@@ -25,7 +29,7 @@ def main() -> None:
         days=a.active_days)
     out = {}
     for org in a.orgs:
-        rows = [json.loads(x) for x in open(Path(a.census).expanduser() / "repos" / f"{org}.jsonl")]
+        rows = list(load_census(a.census, org).values())
         act = [
             r for r in rows
             if not (r["archived"] or r["fork"] or r["disabled"]) and r["pushed_at"]

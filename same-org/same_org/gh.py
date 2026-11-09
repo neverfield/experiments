@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import http.client
 import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -44,7 +46,18 @@ class Spend:
     cache_hits: int = 0
     bytes_in: int = 0
     waits_s: float = 0.0
+    request_s: float = 0.0
+    retries: int = 0
     by_kind: dict[str, int] = field(default_factory=dict)
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def add(self, **kw) -> None:
+        with self.lock:
+            for k, v in kw.items():
+                if k == "kind":
+                    self.by_kind[v] = self.by_kind.get(v, 0) + 1
+                else:
+                    setattr(self, k, getattr(self, k) + v)
 
     def as_dict(self) -> dict:
         return {
@@ -54,12 +67,14 @@ class Spend:
             "cache_hits": self.cache_hits,
             "bytes_in": self.bytes_in,
             "waits_s": round(self.waits_s, 1),
+            "request_s": round(self.request_s, 1),
+            "retries": self.retries,
             "by_kind": dict(sorted(self.by_kind.items())),
         }
 
 
 class GitHub:
-    """Sequential client. `min_remaining` keeps a reserve so other work on the token isn't starved."""
+    """Thread-safe client. `min_remaining` keeps a reserve so other work on the token isn't starved."""
 
     def __init__(self, cache_dir: str | Path, min_remaining: int = 200, verbose: bool = False):
         self.cache = Path(cache_dir).expanduser()
@@ -78,14 +93,14 @@ class GitHub:
 
     def _read_cache(self, p: Path):
         if p.exists():
-            self.spend.cache_hits += 1
+            self.spend.add(cache_hits=1)
             with gzip.open(p, "rt") as f:
                 return json.load(f)
         return None
 
     def _write_cache(self, p: Path, obj) -> None:
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".tmp")
+        tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         with gzip.open(tmp, "wt") as f:
             json.dump(obj, f)
         tmp.replace(p)
@@ -98,7 +113,7 @@ class GitHub:
         else:
             delay = max(5.0, reset - time.time() + 2)
         print(f"[gh] {why}: waiting {delay:.0f}s", file=sys.stderr, flush=True)
-        self.spend.waits_s += delay
+        self.spend.add(waits_s=delay)
         time.sleep(delay)
 
     def _do(self, method: str, url: str, body: bytes | None, accept: str):
@@ -111,11 +126,12 @@ class GitHub:
             req.add_header("User-Agent", "neverfield-experiments-same-org")
             if body is not None:
                 req.add_header("Content-Type", "application/json")
+            t0 = time.monotonic()
             try:
                 with urllib.request.urlopen(req, timeout=120) as r:
                     raw = r.read()
                     self.auth_failures = 0
-                    self.spend.bytes_in += len(raw)
+                    self.spend.add(bytes_in=len(raw), request_s=time.monotonic() - t0)
                     rem = r.headers.get("x-ratelimit-remaining")
                     if rem is not None and int(rem) < self.min_remaining:
                         self._wait_reset(r.headers, f"remaining {rem} below reserve")
@@ -129,7 +145,7 @@ class GitHub:
                     if self.auth_failures > self.max_auth_wait_min:
                         raise RuntimeError("GitHub token rejected for too long") from e
                     print("[gh] 401: re-reading token in 60s", file=sys.stderr, flush=True)
-                    self.spend.waits_s += 60
+                    self.spend.add(waits_s=60)
                     time.sleep(60)
                     self.tok = _token()
                     continue
@@ -137,17 +153,24 @@ class GitHub:
                     hdrs.get("x-ratelimit-remaining") == "0" or "retry-after" in hdrs
                     or b"secondary rate limit" in raw.lower()
                 ):
+                    if hdrs.get("x-ratelimit-remaining") != "0" and "retry-after" not in hdrs:
+                        # GitHub asks for at least a minute after a secondary limit.
+                        hdrs = {"retry-after": "60"}
                     self._wait_reset(hdrs, f"HTTP {e.code} rate limited")
                     continue
                 if e.code in (500, 502, 503, 504) and attempt < 4:
                     attempt += 1
+                    self.spend.add(retries=1)
                     time.sleep(4 * 2**attempt)
                     continue
                 return e.code, hdrs, raw
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            except (urllib.error.URLError, TimeoutError, ConnectionError,
+                    http.client.HTTPException) as e:
+                # HTTPException covers IncompleteRead, a body cut off mid-transfer.
                 if attempt < 4:
                     attempt += 1
-                    print(f"[gh] network error {e}; retry {attempt}", file=sys.stderr)
+                    self.spend.add(retries=1)
+                    print(f"[gh] network error {e!r:.200}; retry {attempt}", file=sys.stderr)
                     time.sleep(4 * 2**attempt)
                     continue
                 raise
@@ -161,8 +184,7 @@ class GitHub:
             if hit is not None:
                 return hit["status"], hit["data"]
         status, _, raw = self._do("GET", url, None, "application/vnd.github+json")
-        self.spend.rest += 1
-        self.spend.by_kind[kind] = self.spend.by_kind.get(kind, 0) + 1
+        self.spend.add(rest=1, kind=kind)
         data = json.loads(raw) if raw and status < 400 else None
         if status < 400 or status in (404, 409, 451):
             if cache:
@@ -201,11 +223,16 @@ class GitHub:
         attempt = 0
         while True:
             status, hdrs, raw = self._do("POST", API + "/graphql", body, "application/json")
-            self.spend.graphql_calls += 1
-            self.spend.by_kind[kind] = self.spend.by_kind.get(kind, 0) + 1
-            out = json.loads(raw) if raw else {}
+            self.spend.add(graphql_calls=1, kind=kind)
+            try:
+                out = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                out = {}
             errs = out.get("errors") or []
-            if status in (502, 504) or any(e.get("type") == "RATE_LIMITED" for e in errs):
+            # A 200 with errors and no data is a server-side timeout; retry it like a 502.
+            transient = status in (502, 504) or (status == 200 and errs and not out.get("data"))
+            if transient or any(e.get("type") == "RATE_LIMITED" for e in errs):
+                self.spend.add(retries=1)
                 attempt += 1
                 if attempt > 5:
                     raise RuntimeError(f"graphql failed after retries: {raw[:300]!r}")
@@ -216,7 +243,7 @@ class GitHub:
                 continue
             break
         rl = (out.get("data") or {}).get("rateLimit") or {}
-        self.spend.graphql_points += int(rl.get("cost") or 0)
+        self.spend.add(graphql_points=int(rl.get("cost") or 0))
         if rl and int(rl.get("remaining") or 10**6) < self.min_remaining:
             self._wait_reset({"x-ratelimit-reset": _iso_to_epoch(rl.get("resetAt"))},
                              f"graphql remaining {rl.get('remaining')} below reserve")

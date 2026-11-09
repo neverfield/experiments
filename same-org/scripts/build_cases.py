@@ -2,12 +2,16 @@
 
 Methods (a case is a set of merged, non-bot PRs in the org's own non-fork repos):
 
-  issue-close  PRs that close the same in-org issue (closing keyword or linked in the sidebar).
-  issue-ref    PRs that reference the same in-org issue in any way (timeline cross-references).
-  pr-link      Connected components of PR-to-PR references across repos, ports and reverts
-               excluded. `pr-link-dep` keeps only "depends on" and "companion" edges.
-  key          PRs whose titles carry the same ticket key (FLINK-123, OCPBUGS-45, KEP-4381).
-  branch       PRs by one author from the same non-generic branch name, merged within 30 days.
+  issue-close   PRs that close the same in-org issue: a closing keyword, the sidebar link, or a
+                timeline event that will close it.
+  issue-strong  issue-close plus PRs whose text links the issue as "part of", "depends on",
+                "companion" or "follow-up".
+  issue-ref     PRs that reference the same in-org issue in any way but a port, revert or
+                supersedes, including timeline cross-references from comments and commits.
+  pr-link       Connected components of PR-to-PR references across repos, ports and reverts
+                excluded. `pr-link-dep` keeps only "depends on" and "companion" edges.
+  key           PRs whose titles carry the same ticket key (FLINK-123, OCPBUGS-45, KEP-4381).
+  branch        PRs by one author from the same non-generic branch name, merged within 30 days.
 
 A case's targets are the distinct repositories of its PRs. Writes `cases.jsonl.gz` and
 `case_summary.json` next to the mined PRs.
@@ -27,20 +31,19 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from same_org.orgs import in_owners, load_census, owners_of  # noqa: E402
 from same_org.refs import (  # noqa: E402
+    EXCLUDED_CTX,
+    PORT_TITLE,
     extract_keys,
     extract_refs,
     is_bot,
     is_generic_branch,
 )
 
-PORT_TITLE = re.compile(
-    r"^\s*(?:\[[^\]]*(?:backport|cherry|release-|\d+\.\d+)[^\]]*\]|backport|cherry-?pick|"
-    r"revert\b|\[revert|automated cherry pick|.*\(backport\b|.*\bbackport (?:of|to)\b)",
-    re.I,
-)
 META_TITLE = re.compile(r"\b(?:meta|epic|tracking|umbrella|roadmap|tracker|placeholder)\b", re.I)
-EXCLUDED_CTX = {"port", "revert", "supersedes"}
+STRONG_CTX = {"close", "partof", "depends", "companion", "followup"}
+METHODS = ["issue-close", "issue-strong", "issue-ref", "pr-link", "pr-link-dep", "key", "branch"]
 
 
 def ts(s: str | None) -> datetime | None:
@@ -83,21 +86,16 @@ def main() -> None:
     ap.add_argument("--branch-days", type=int, default=30)
     a = ap.parse_args()
 
-    org = a.org.lower()
+    owners = owners_of(a.org)
     d = Path(a.mined).expanduser() / a.org
     prs_raw = load_jsonl_gz(d / "prs.jsonl.gz")
     hubs = {h["key"]: h for h in load_jsonl_gz(d / "hubs.jsonl.gz")} if (
         d / "hubs.jsonl.gz").exists() else {}
-    census = Path(a.census).expanduser() / "repos" / f"{a.org}.jsonl"
-    repos = {}
-    if census.exists():
-        for line in open(census):
-            r = json.loads(line)
-            repos[r["full_name"].lower()] = r
+    repos = load_census(a.census, a.org)
 
     def own_repo(name: str) -> bool:
         n = name.lower()
-        if not n.startswith(org + "/"):
+        if not in_owners(n, owners):
             return False
         r = repos.get(n)
         return not (r and r.get("fork"))
@@ -129,10 +127,15 @@ def main() -> None:
         )
 
     window = {k: p for k, p in prs.items() if p["_window"]}
+    window_refs = {
+        k: extract_refs(f"{p['title']}\n{p['body']}", p["repository"]["nameWithOwner"])
+        for k, p in window.items() if usable(p)
+    }
     groups: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     edge_ctx: dict[str, Counter] = defaultdict(Counter)
 
-    # issue-close and issue-ref
+    # Issue hubs: collect every context in which each PR links each hub.
+    link_ctx: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for hk, h in hubs.items():
         if h.get("__typename") != "Issue" or not own_repo(hk.split("#")[0]):
             continue
@@ -143,38 +146,39 @@ def main() -> None:
             k = pr_key(src["repository"]["nameWithOwner"], src["number"])
             if not usable(prs[k]):
                 continue
-            groups["issue-ref"][hk].add(k)
-            if ev["__typename"] == "ConnectedEvent" or ev.get("willCloseTarget"):
-                groups["issue-close"][hk].add(k)
-    for k, p in window.items():
-        if not usable(p):
-            continue
-        repo = p["repository"]["nameWithOwner"]
+            closes = ev["__typename"] == "ConnectedEvent" or ev.get("willCloseTarget")
+            link_ctx[hk][k].add("close" if closes else "timeline")
+    for k, refs in window_refs.items():
+        p = window[k]
         for n in (p.get("closingIssuesReferences") or {}).get("nodes") or []:
             hk = pr_key(n["repository"]["nameWithOwner"], n["number"])
             if hubs.get(hk, {}).get("__typename") == "Issue" and own_repo(hk.split("#")[0]):
-                groups["issue-close"][hk].add(k)
-                groups["issue-ref"][hk].add(k)
-        for r in extract_refs(f"{p['title']}\n{p['body']}", repo):
+                link_ctx[hk][k].add("close")
+        for r in refs:
             h = hubs.get(r.target)
-            if not h or r.owner.lower() != org or not own_repo(r.target.split("#")[0]):
+            if not h or h.get("__typename") != "Issue" or not own_repo(r.target.split("#")[0]):
                 continue
-            if h.get("__typename") == "Issue" and r.context not in EXCLUDED_CTX:
-                groups["issue-ref"][r.target].add(k)
-                if r.closes:
-                    groups["issue-close"][r.target].add(k)
+            link_ctx[r.target][k].add("close" if r.closes else r.context)
+    for hk, members in link_ctx.items():
+        for k, ctxs in members.items():
+            if prs[k]["_window"] and ctxs <= EXCLUDED_CTX | {"timeline"} and ctxs & EXCLUDED_CTX:
+                continue
+            groups["issue-ref"][hk].add(k)
+            if "close" in ctxs:
+                groups["issue-close"][hk].add(k)
+            if ctxs & STRONG_CTX:
+                groups["issue-strong"][hk].add(k)
 
     # pr-link
     uf_all, uf_dep = UF(), UF()
-    for k, p in window.items():
-        if not usable(p):
-            continue
-        repo = p["repository"]["nameWithOwner"]
-        for r in extract_refs(f"{p['title']}\n{p['body']}", repo):
+    edges: list[tuple[str, str, str]] = []
+    for k, refs in window_refs.items():
+        repo = window[k]["repository"]["nameWithOwner"].lower()
+        for r in refs:
             h = hubs.get(r.target)
             if not h or h.get("__typename") != "PullRequest" or not h.get("merged"):
                 continue
-            if r.target.split("#")[0] == repo.lower() or r.target not in prs:
+            if r.target.split("#")[0] == repo or r.target not in prs:
                 continue
             if not usable(prs[r.target]):
                 continue
@@ -182,18 +186,22 @@ def main() -> None:
             if r.context in EXCLUDED_CTX:
                 continue
             uf_all.union(k, r.target)
+            edges.append((k, r.target, r.context))
             if r.context in ("depends", "companion"):
                 uf_dep.union(k, r.target)
+    case_edges: dict[str, list] = defaultdict(list)
     for name, uf in (("pr-link", uf_all), ("pr-link-dep", uf_dep)):
         for x in list(uf.p):
             groups[name][f"{name}:{uf.find(x)}"].add(x)
+        for src, dst, ctx in edges:
+            if name == "pr-link" or ctx in ("depends", "companion"):
+                case_edges[f"{name}:{uf.find(src)}"].append([src, dst, ctx])
 
     # key
     key_prs: dict[str, set[str]] = defaultdict(set)
-    for k, p in window.items():
-        if usable(p):
-            for key in extract_keys(p["title"]):
-                key_prs[key].add(k)
+    for k in window_refs:
+        for key in extract_keys(window[k]["title"]):
+            key_prs[key].add(k)
     prefix_n = Counter(key.split("-")[0] for key in key_prs)
     for key, ks in key_prs.items():
         if prefix_n[key.split("-")[0]] >= a.key_min_numbers:
@@ -201,8 +209,9 @@ def main() -> None:
 
     # branch
     by_branch: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for k, p in window.items():
-        if usable(p) and not is_generic_branch(p.get("headRefName")):
+    for k in window_refs:
+        p = window[k]
+        if not is_generic_branch(p.get("headRefName")):
             by_branch[((p.get("author") or {}).get("login", ""), p["headRefName"])].add(k)
     for (login, br), ks in by_branch.items():
         repos_ = {x.split("#")[0] for x in ks}
@@ -215,7 +224,8 @@ def main() -> None:
     # Write cases.
     rows = []
     summary: dict[str, dict] = {}
-    for method, gs in groups.items():
+    for method in METHODS:
+        gs = groups.get(method, {})
         sizes = Counter()
         for gid, ks in gs.items():
             targets = sorted({x.split("#")[0] for x in ks})
@@ -228,9 +238,16 @@ def main() -> None:
                 "targets": targets, "n_targets": len(targets),
                 "prs": sorted(ks),
                 "window_prs": sum(1 for x in ks if prs[x]["_window"]),
+                "authors": len({(prs[x].get("author") or {}).get("login") for x in ks}),
             }
+            merged = sorted(t for t in (ts(prs[x].get("mergedAt")) for x in ks) if t)
+            row["span_days"] = (merged[-1] - merged[0]).days if merged else None
+            row["first_merged"] = merged[0].isoformat() if merged else None
+            if gid in case_edges:
+                row["edges"] = case_edges[gid]
             if hub:
                 created = ts(hub.get("createdAt"))
+                row["link_ctx"] = {x: sorted(link_ctx[gid][x]) for x in sorted(ks)}
                 row["hub"] = {
                     "url": hub.get("url"), "title": hub.get("title"),
                     "createdAt": hub.get("createdAt"), "repo": gid.split("#")[0],
@@ -239,6 +256,8 @@ def main() -> None:
                     "timeline_total": hub["timelineItems"]["totalCount"],
                     "pre_work": bool(created and first_pr and created < first_pr),
                     "meta_title": bool(META_TITLE.search(hub.get("title") or "")),
+                    "author_is_bot": is_bot((hub.get("author") or {}).get("login"),
+                                            (hub.get("author") or {}).get("__typename")),
                 }
             rows.append(row)
             sizes[min(len(targets), 5)] += 1
@@ -253,20 +272,24 @@ def main() -> None:
         for r in rows:
             f.write(json.dumps(r) + "\n")
 
-    usable_window = [k for k, p in window.items() if usable(p)]
-    in_multi = set()
+    # PR-level view: which usable window PRs sit in a multi-repo case, per method.
+    usable_window = set(window_refs)
+    in_multi: dict[str, set[str]] = defaultdict(set)
     for r in rows:
         if r["n_targets"] >= 2:
-            in_multi.update(r["prs"])
+            in_multi[r["method"]].update(set(r["prs"]) & usable_window)
     out = {
         "org": a.org,
+        "owners": list(owners),
         "window_prs": len(window),
         "window_prs_usable": len(usable_window),
         "window_prs_bot": sum(1 for p in window.values()
                               if is_bot((p.get("author") or {}).get("login"),
                                         (p.get("author") or {}).get("__typename"))),
         "window_repos_with_merged_pr": len({k.split("#")[0] for k in usable_window}),
-        "window_prs_in_any_multi_repo_case": len(in_multi & set(usable_window)),
+        "window_prs_in_multi_repo_case": {m: len(v) for m, v in sorted(in_multi.items())},
+        "window_prs_in_any_multi_repo_case": len(set().union(*in_multi.values()))
+        if in_multi else 0,
         "pr_link_edge_contexts": dict(edge_ctx["pr-link"]),
         "key_prefixes": dict(prefix_n.most_common(15)),
         "methods": summary,
