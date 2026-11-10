@@ -362,6 +362,12 @@ def provider_error_allowance(cell: str) -> int:
     return PROVIDER_ERROR_ALLOWANCE.get(cell, 0)
 
 
+# Item 22: a pass with no first run that finished with tokens has no rate of its own, so
+# its stopped runs are priced at the selection export's pinned rate, in USD per million
+# tokens. Every other pass keeps its own.
+FALLBACK_RATE = 0.257
+
+
 # Open choices, with the value this code uses. TEST_ANALYSIS.md explains each.
 CHOICES = {
     "pooling": "per case, the mean over both passes (and over the 5 bm25f-deps-random draws); "
