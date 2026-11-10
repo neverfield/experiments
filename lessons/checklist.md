@@ -43,6 +43,8 @@ Read this before designing an experiment, and answer each line in a sentence or 
 - [ ] Give the analysis a way to withdraw a run: a rule keyed on file and commit, with a reason, whose file is still audited. Use it before the rerun lands, so the two are never pooled, and rerun the whole cell, not only the cases that were hit. ([why](process/withdraw-a-contaminated-run-in-the-registry-before-its-rerun-lands.md))
 - [ ] If a frontier compares several costs, put a cost tolerance and floors in its rule, and plan to show what the 0% frontier adds. ([why](measurement/give-a-cost-frontier-over-several-dimensions-a-tolerance.md))
 - [ ] Before the test run, copy a few dev cases' complete raw outputs per method (event streams, traces, server logs, predictions, `run.env`) to the store, so later analyses can be tested on real formats while the test runs stay blind. ([why](measurement/keep-dev-copies-of-every-raw-log-an-analysis-may-parse.md))
+- [ ] Before freezing the scoring code, take blind counts from the real runs of every field it branches on (run status, empty usage). Score a synthetic study that covers each combination, including a pass in which every run stopped, and make the dry run stop wherever those fields would stop scoring. ([why](measurement/score-a-synthetic-study-shaped-like-the-real-runs-because-a-dry-run-skips-scoring.md))
+- [ ] Have the report print each run's status from the inputs scoring used, and keep no hand copy of a registered table in the code. ([why](process/print-each-runs-status-from-the-inputs-scoring-used-not-a-registry-copy-frozen-earlier.md))
 
 ## Infrastructure
 
@@ -64,6 +66,7 @@ Read this before designing an experiment, and answer each line in a sentence or 
 - [ ] While confirmatory cells run, keep the run host to them: no side containers except short read-only audits, each logged beside its cell. Dry-run every helper in the run image and on the host's own OS, for example for `PYTHONPATH`, and for `timeout`, which macOS lacks. ([why](infrastructure/run-no-side-containers-on-the-host-while-test-cells-run.md), [why](infrastructure/give-move-and-audit-scripts-the-toolings-pythonpath-and-dry-run-them-in-the-image.md), [why](infrastructure/macos-has-no-timeout-so-put-time-limits-inside-the-linux-container.md))
 - [ ] Pin thread counts, and take timings on an idle machine, with no other agent runs in flight for agent timings. ([why](infrastructure/pin-threads-and-time-on-a-quiet-machine.md))
 - [ ] Hold the agent's turn open while background runs go: the VM pauses about 10 minutes after a turn ends. Time runs on a clock that stops in a pause, record wall time too, and flag the runs that crossed one. ([why](infrastructure/hold-the-turn-open-while-background-runs-go.md))
+- [ ] Start any run that must outlive a tool call in its own session (`nohup` and `setsid`, or tmux), never as a `&` job of the call's shell. Name its container, keep a copy of its log in a file, and check that the wrapper survives its caller before the real run. ([why](infrastructure/start-long-runs-in-their-own-session-not-as-a-background-job-of-a-tool-call.md))
 - [ ] Have each runner log startup, waits, tool calls and a pause flag as separate, uncapped fields, and define which of them latency includes. ([why](measurement/record-each-part-of-a-runs-time-separately-and-uncapped.md))
 - [ ] If other jobs must keep running, freeze them with `SIGSTOP` for the timing pass, resume them from a `trap`, and guard each sample with a heartbeat that detects pauses. ([why](infrastructure/freeze-the-other-jobs-and-guard-each-timing-sample-with-a-heartbeat.md))
 
@@ -71,7 +74,7 @@ Read this before designing an experiment, and answer each line in a sentence or 
 
 - [ ] Smoke-test a few cases at the smallest real size, and project cost from that. ([why](budget/measure-cost-on-a-slice-of-the-real-data.md))
 - [ ] Set a stop per batch inside the total cap, and log tokens and dollars per case, failed attempts included. ([why](budget/set-per-batch-stops-and-log-spend-per-case.md))
-- [ ] Have each queue print the cap it enforces, and pass cap changes through a file that each launch reads. Seed the spend watch with a rate from earlier runs, for when it can't price yet. ([why](budget/check-that-a-raised-cap-reaches-every-queue-through-its-launcher.md), [why](budget/give-a-spend-watch-a-safe-fallback-for-when-it-cant-price-runs-yet.md))
+- [ ] Have each queue print the cap it enforces, and pass cap changes through a file that each launch reads. Seed the spend watch, and the analysis's cost code, with a rate from earlier runs, for when they can't price yet. ([why](budget/check-that-a-raised-cap-reaches-every-queue-through-its-launcher.md), [why](budget/give-a-spend-watch-a-safe-fallback-for-when-it-cant-price-runs-yet.md))
 - [ ] Try the cheap version of a measurement first, and pay for rigor only if it changes the answer. ([why](budget/try-the-cheap-version-first-and-pay-for-rigor-only-if-it-changes-the-answer.md))
 
 ## When it finishes

@@ -13,3 +13,5 @@
 - Seed the watch with a rate from comparable earlier runs, such as the test passes' pooled rate, or price runs at the turn cap from the token counts they still record. Mark each line priced that way as estimated.
 - State the fallback as a multiple of a known rate, not a fixed per-case figure.
 - In the smoke test, check that the watch prices a run that ends at the turn cap.
+
+**Seen again:** 2026-11-10, held-out scoring (store `internal/scoring-freeze/heldout-score-683880b/record.md`; `repo-discovery/PREREGISTRATION.md`, addendum item 22). The frozen cost code took each agent pass's rate from that pass's finished first runs, with no fallback. In 5 of the 38 test passes, every first run stopped at the turn budget, so scoring stopped. Item 22 priced those passes' stopped runs at the selection export's $0.257/Mtok, a rate fixed before scoring, and footnoted them in the cost table. Give every pricing function, not only the spend watch, a registered fallback rate, and test it on a pass with no finished run ([why](../measurement/score-a-synthetic-study-shaped-like-the-real-runs-because-a-dry-run-skips-scoring.md)).
