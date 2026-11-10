@@ -26,7 +26,7 @@ agent store (`bc-c364fa0b-55a8-56e7-96c4-2b320bedf063`), not here; a path writte
 | Preregistration and test run (EXP-13) | [#34](https://github.com/neverfield/experiments/pull/34), [#35](https://github.com/neverfield/experiments/pull/35), [#36](https://github.com/neverfield/experiments/pull/36) | `bc-ab8b72fd-57be-4f36-a496-c9394d912d35` (#36: `bc-a6c757c7-7494-5524-9e93-8395a751ed9a`) | [PREREGISTRATION.md](PREREGISTRATION.md), store `internal/reconcile/test-run-brief.md` |
 | Test reruns: §7.7's addendum, items 1–21 (EXP-13) | [#38](https://github.com/neverfield/experiments/pull/38) | `bc-084152b8-02b8-5000-b1f0-2ba1b6c002fb` | [PREREGISTRATION.md](PREREGISTRATION.md) §7, store `internal/scoring-freeze/` |
 | Test scoring: freeze, and item 22's fallback rate (EXP-13) | [#39](https://github.com/neverfield/experiments/pull/39), [#42](https://github.com/neverfield/experiments/pull/42) | `bc-224070da-01e8-5e7d-877c-874257b50263` (Mac tests, merge and scoring: `bc-44045ea2-08c4-50ea-ad04-19d1642ee803`) | [TEST_ANALYSIS.md](TEST_ANALYSIS.md), store `internal/scoring-freeze/heldout-score-ae33125/record.md` |
-| Held-out results (EXP-13) | | `bc-44045ea2-08c4-50ea-ad04-19d1642ee803` | store `docs/heldout-results.md`, `docs/heldout-test-report/` |
+| Held-out results (EXP-13) | [#43](https://github.com/neverfield/experiments/pull/43) | `bc-44045ea2-08c4-50ea-ad04-19d1642ee803` | store `docs/heldout-results.md`, `docs/heldout-test-report/` |
 
 ## Status (as of 2026-11-10)
 
