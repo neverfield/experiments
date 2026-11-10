@@ -34,6 +34,8 @@ import heldout_report as hreport
 import heldout_runs as runs
 import heldout_score as score
 import test_report as report
+from v5_dev_report import PRICES, case_cost
+from v5_memory_report import _rate
 
 REAL, HIDDEN = "real", "hidden"
 VISIBILITY = ("none", "partial", "complete")
@@ -150,12 +152,16 @@ def events(i: int, target_owner: str) -> list[dict]:
     return [{"type": "tool_call", "subtype": "started", "tool_call": call}]
 
 
-def trace(spec: plan.CellSpec, ranked: list[str], i: int, status: str = "ok") -> dict:
+def trace(
+    spec: plan.CellSpec, ranked: list[str], i: int, status: str = "ok", runs: list | None = None
+) -> dict:
+    if runs is None:
+        usage = {"inputTokens": 1000 + i, "outputTokens": 100}
+        runs = [{"status": "ok", "usage": usage, "context": []}]
     out = {
         "status": status,
-        "runs": [
-            {"status": "ok", "usage": {"inputTokens": 1000 + i, "outputTokens": 100}, "context": []}
-        ],
+        "follow_up_status": runs[1]["status"] if len(runs) > 1 else None,
+        "runs": runs,
         "seconds": 10.0 + i,
         "returned": min(len(ranked), 20),
         "opened": ranked[:3] if spec.method == "l5" else [],
@@ -166,11 +172,54 @@ def trace(spec: plan.CellSpec, ranked: list[str], i: int, status: str = "ok") ->
     return out
 
 
+# A study whose runs stop: no first run finishes in these passes, so none has a rate of its
+# own. The last one's first runs end ok but record no usage.
+NO_FINISHED = (
+    "p1/u1000-hidden-l5-n50",
+    "p1/u5000-hidden-c2-bm25f-L4",
+    "p2/u5000-hidden-c2-bm25f-L4",
+    "p2/u10000-hidden-l5-n20",
+    "p2/u250-real-c1-L3",
+)
+ONE_FINISHED = "p2/u10000-real-c2-bm25f-L4"
+
+
+def agent_run(status: str, usage: dict | None = None, context: tuple[int, ...] = ()) -> dict:
+    return {
+        "status": status,
+        "seconds": 40.0,
+        "usage": usage or {},
+        "model_turns": 21,
+        "tool_turns": 21 if status == "turn_budget" else 8,
+        "error": None,
+        "context": list(context),
+    }
+
+
+def stopped_runs(key: str, i: int) -> list[dict]:
+    """Each first run ends ok with usage or at the turn budget, as in a pass with hidden
+    names. The follow-up after the turn budget ends ok with usage, at its time limit or at
+    its own turn budget, the last two with no usage."""
+    if key == NO_FINISHED[-1]:
+        return [agent_run("ok", None, (11000 + i, 17000 + i))]
+    if key not in NO_FINISHED and (i == 0 if key == ONE_FINISHED else i % 4 == 0):
+        usage = {"inputTokens": 3000 + i, "cacheReadTokens": 40000 + 100 * i, "outputTokens": 500}
+        return [agent_run("ok", usage, (12000, 20000 + i))]
+    first = agent_run("turn_budget", None, (9000 + i, 15000 + 2 * i, 21000 + 3 * i))
+    follow_up = [
+        agent_run("ok", {"inputTokens": 400, "cacheReadTokens": 22000 + i, "outputTokens": 300}),
+        agent_run("timeout", None, (23000 + i,)),
+        agent_run("turn_budget"),
+    ][i % 3]
+    return [first, follow_up]
+
+
 class Study:
     """A synthetic study tree and its inputs file."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, runs: Callable[[str, int], list[dict]] | None = None) -> None:
         self.root = root
+        self.runs = runs
         self.cases = {
             names: [study_case(i, names) for i in range(plan.N_CASES)] for names in plan.NAMES
         }
@@ -251,8 +300,10 @@ class Study:
         predictions = self.predictions(spec, label)
         write_predictions(directory / plan.PRED_FILE, predictions)
         for i, (case, p) in enumerate(zip(self.cases[spec.names], predictions, strict=True)):
+            runs_ = self.runs(key, i) if self.runs else None
+            status = runs_[0]["status"] if runs_ else "ok"
             (directory / f"{case.case_id}.json").write_text(
-                json.dumps(trace(spec, list(p.ranking), i, "ok"))
+                json.dumps(trace(spec, list(p.ranking), i, status, runs_))
             )
             o = case.gold[0].repo.split("/")[0]
             (directory / f"{case.case_id}.events.jsonl").write_text(
@@ -352,6 +403,28 @@ def built(study: Study, tmp_path_factory: pytest.TempPathFactory) -> tuple[hrepo
         )
         result = hreport.build(score.Inputs.load(study.inputs), plan.REGISTRATION)
         out = tmp_path_factory.mktemp("report")
+        hreport.write(result, out)
+    return result, out
+
+
+@pytest.fixture(scope="module")
+def stopped(tmp_path_factory: pytest.TempPathFactory) -> Study:
+    return Study(tmp_path_factory.mktemp("stopped"), stopped_runs)
+
+
+@pytest.fixture(scope="module")
+def stopped_built(
+    stopped: Study, tmp_path_factory: pytest.TempPathFactory
+) -> tuple[hreport.Report, Path]:
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(split, "check_registered", lambda commit, repo=None: plan.REGISTRATION)
+        mp.setattr(
+            hreport,
+            "code_version",
+            lambda repo=None: {"commit": "f" * 40, "dirty": False, "changed": []},
+        )
+        result = hreport.build(score.Inputs.load(stopped.inputs), plan.REGISTRATION)
+        out = tmp_path_factory.mktemp("stopped-report")
         hreport.write(result, out)
     return result, out
 
@@ -1122,6 +1195,7 @@ def test_outputs_are_written(built: tuple[hreport.Report, Path]) -> None:
     text = (out / "report.md").read_text()
     assert "S1" not in text and "s1" not in set(result.tables)
     assert not any(token in text for token in (" nan", "nan ", "[nan", "inf]", " inf "))
+    assert "item 22" not in text and not any(r.rate_fallback for r in result.results.values())
     assert "kept; no run.env by design" in result.tables["passes"]
     misses = read_csv(out / "misses.csv")
     assert all(r["status"] == "ok" for r in misses if r["cell"] == "u250-real-l5-n10")
@@ -1180,3 +1254,120 @@ def test_cli_scores_the_synthetic_study(
     printed = capsys.readouterr().out
     assert "| H1-real |" in printed and "reject H0" in printed
     assert (out / "report.md").is_file()
+
+
+# Stopped runs and the fallback rate (item 22) -------------------------------------------
+
+
+def test_pass_rate_is_the_frozen_rate_or_none() -> None:
+    prices = PRICES[score.MODEL]
+
+    def first(status: str, usage: dict | None = None) -> dict:
+        return {"runs": [agent_run(status, usage, (500, 900))]}
+
+    done = first("ok", {"inputTokens": 1000, "cacheReadTokens": 9000, "outputTokens": 50})
+    errored = first("error", {"inputTokens": 200, "outputTokens": 5})
+    traces = [done, errored, first("turn_budget"), first("timeout"), first("ok")]
+    assert score.pass_rate(traces) == _rate(traces, prices)[0]
+    for none_finished in (
+        [first("turn_budget"), first("timeout")],
+        [first("ok"), first("error")],
+        [first("error", {"inputTokens": 0, "outputTokens": 0}), first("turn_budget")],
+    ):
+        assert score.pass_rate(none_finished) is None
+    with pytest.raises(SystemExit, match="no finished first run"):
+        _rate([first("turn_budget"), first("ok")], prices)
+    with pytest.raises(ZeroDivisionError):
+        _rate([first("error", {"inputTokens": 0})], prices)
+
+
+def pass_source(study: Study, key: str) -> score.Source:
+    directory = study.pass_dir(key)
+    return score.Source(key, directory / plan.PRED_FILE, directory)
+
+
+def test_each_pass_keeps_its_own_rate_unless_it_has_none(stopped: Study) -> None:
+    """Each pass, scored alone, costs exactly what the frozen functions give at its own
+    rate; only the passes with no finished first run take the fallback rate."""
+    prices = PRICES[score.MODEL]
+    cases = score.load_cases(score.Inputs.load(stopped.inputs), plan.REGISTRATION)
+    for key, registered in plan.PASSES.items():
+        spec = plan.CELLS[registered.cell]
+        case_set = cases[spec.names]
+        source = pass_source(stopped, key)
+        result = score.score_cell(spec, [source], case_set, None, None, None)
+        traces = [json.loads((source.traces / f"{i}.json").read_text()) for i in case_set.cases]
+        if key in NO_FINISHED:
+            with pytest.raises(SystemExit):
+                _rate(traces, prices)
+            rate = plan.FALLBACK_RATE
+            assert result.rate_fallback == [key]
+            assert result.notes == [score.fallback_note([key])]
+        else:
+            rate = _rate(traces, prices)[0]
+            assert result.rate_fallback == [] and result.notes == []
+        for own, t in zip(case_set.cases, traces, strict=True):
+            usd, tokens, _ = case_cost(t, prices, rate)
+            spent = result.costs[case_set.real[own]]
+            assert (spent["usd"], spent["tokens"]) == (usd, float(tokens))
+
+
+def test_passes_with_no_finished_first_run_are_scored_and_listed(
+    stopped_built: tuple[hreport.Report, Path], built: tuple[hreport.Report, Path]
+) -> None:
+    result, out = stopped_built
+    fallback = [p for r in result.results.values() for p in r.rate_fallback]
+    assert sorted(fallback) == sorted(NO_FINISHED)
+    cost = result.tables["cost"]
+    assert "item 22" in cost and all(f"`{p}`" in cost for p in NO_FINISHED)
+    text = (out / "report.md").read_text()
+    record = json.loads((out / "results.json").read_text())
+    frontier = {r["source"]: r["notes"] for r in read_csv(out / "frontier" / "cells.csv")}
+    for name, r in result.results.items():
+        note = [score.fallback_note(r.rate_fallback)] if r.rate_fallback else []
+        assert [n for n in record["cells"][name]["notes"] if "item 22" in n] == note
+        assert all(n in text for n in note)
+        if r.spec.registered and r.per_case:
+            assert ("item 22" in frontier[name]) == bool(r.rate_fallback)
+    both = result.results["u5000-hidden-c2-bm25f-L4"]
+    assert both.rate_fallback == ["p1/u5000-hidden-c2-bm25f-L4", "p2/u5000-hidden-c2-bm25f-L4"]
+    assert not any(token in text for token in (" nan", "nan ", "[nan", "inf]", " inf "))
+    # Only cost moves: every metric, interval and comparison is the study's with finished runs.
+    _, base = built
+    for name in ("cells.csv", "per_pass.csv", "comparisons.csv", "first_search.csv"):
+        assert (out / name).read_bytes() == (base / name).read_bytes(), name
+
+
+def test_a_pass_whose_first_runs_all_hit_the_time_limit(stopped: Study, tmp_path: Path) -> None:
+    """Item 4's bound stops scoring at a timeout case, so only score_all reaches this pass;
+    it is priced at the fallback rate, like a pass stopped at the turn budget."""
+    key = "p1/u250-real-l5-n10"
+    spec = plan.CELLS[plan.PASSES[key].cell]
+    directory = tmp_path / plan.TEST_AREA / key
+    shutil.copytree(stopped.pass_dir(key), directory)
+    usage = {"inputTokens": 600, "cacheReadTokens": 30000, "outputTokens": 200}
+    for i, case in enumerate(stopped.cases[spec.names]):
+        path = directory / f"{case.case_id}.json"
+        t = json.loads(path.read_text())
+        follow_up = [
+            agent_run("ok", usage),
+            agent_run("timeout", None, (26000 + i,)),
+            agent_run("error"),
+        ][i % 3]
+        t["runs"] = [agent_run("timeout", None, (9000 + i, 18000 + i)), follow_up]
+        t["status"], t["follow_up_status"] = "timeout", follow_up["status"]
+        path.write_text(json.dumps(t))
+    inputs = score.Inputs.load(stopped.inputs)
+    cases = score.load_cases(inputs, plan.REGISTRATION)
+    source = score.Source(key, directory / plan.PRED_FILE, directory)
+    audit = runs.audit_pass(spec, plan.PASSES[key], directory, directory, list(cases["real"].cases))
+    assert f"{plan.N_CASES} timeout cases" in audit.problems
+    results, _ = score.score_all(inputs, cases, {spec.name: [source]}, [spec])
+    r = results[spec.name]
+    assert r.rate_fallback == [key]
+    for case_id in cases["real"].cases:
+        t = json.loads((directory / f"{case_id}.json").read_text())
+        usd, tokens, measured = case_cost(t, PRICES[score.MODEL], plan.FALLBACK_RATE)
+        spent = r.costs[case_id]
+        assert measured and (spent["usd"], spent["tokens"]) == (usd, float(tokens))
+        assert spent["fetch_requests"] > 0

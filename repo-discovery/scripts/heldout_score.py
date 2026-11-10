@@ -32,6 +32,7 @@ from heldout_plan import (
     ALPHA,
     CELLS,
     COMPARISONS,
+    FALLBACK_RATE,
     KS,
     LAST_RANK_CAP,
     METRICS,
@@ -50,7 +51,7 @@ from heldout_plan import (
     RegisteredPass,
 )
 from heldout_runs import PassAudit, audit_pass, pass_dir, trace_dir
-from v5_dev_report import PRICES, case_cost
+from v5_dev_report import PRICES, case_cost, finished
 from v5_export_cases import fetch
 from v5_memory_report import _rate
 
@@ -519,6 +520,23 @@ class CellResult:
     first_search: list[tuple[str, str, str]] = field(default_factory=list)
     misses: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    rate_fallback: list[str] = field(default_factory=list)
+
+
+def pass_rate(traces: Sequence[Mapping]) -> float | None:
+    """The pass's own rate for stopped runs, ``_rate`` over its finished first runs, or None
+    when no first run finished with tokens to take one from (item 22)."""
+    done = [t["runs"][0] for t in traces if finished(t["runs"][0])]
+    if not sum(sum(r["usage"].values()) for r in done):
+        return None
+    return _rate(list(traces), PRICES[MODEL])[0]
+
+
+def fallback_note(passes: Sequence[str]) -> str:
+    return (
+        f"stopped runs of {', '.join(passes)} priced at ${FALLBACK_RATE}/Mtok, "
+        "as no first run finished (item 22)"
+    )
 
 
 def _rankings(source: Source, spec: CellSpec, case_set: CaseSet) -> dict[str, list[str]]:
@@ -576,7 +594,10 @@ def score_cell(
                 i: json.loads((source.traces / f"{i}.json").read_text(encoding="utf-8"))  # type: ignore[operator]
                 for i in case_set.cases
             }
-            rate = _rate(list(traces.values()), PRICES[MODEL])[0]
+            rate = pass_rate(list(traces.values()))
+            if rate is None:
+                rate = FALLBACK_RATE
+                result.rate_fallback.append(source.label)
         values, spent = {}, {}
         for own, case in case_set.cases.items():
             real = case_set.real[own]
@@ -619,6 +640,8 @@ def score_cell(
     result.per_case = pool(result.per_source)
     if any(costs):
         result.costs = pool(costs)
+    if result.rate_fallback:
+        result.notes.append(fallback_note(result.rate_fallback))
     return result
 
 
@@ -867,6 +890,8 @@ def frontier_rows(
             quality[metric] = selection.Value(e.mean, e.low, e.high)
         cell = selection_cell(r.spec)
         costs, notes = selection.cell_costs(cell, frontier_entry(r.spec), tables, r.costs or None)
+        if r.rate_fallback:
+            notes = (*notes, fallback_note(r.rate_fallback))
         rows.append(
             selection.Row(
                 cell=cell,

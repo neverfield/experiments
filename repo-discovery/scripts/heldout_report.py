@@ -33,6 +33,7 @@ from heldout_plan import (
     CHOICES,
     CONFIRMATORY,
     DIGITS,
+    FALLBACK_RATE,
     KEY_SECONDARY,
     MEMORY_CUTOFF,
     MEMORY_SPLIT,
@@ -645,6 +646,7 @@ def cost_means(result: CellResult) -> dict[str, float]:
 
 def cost_table(report: Report, summaries: Mapping[str, CellSummary]) -> str:
     rows = []
+    fallback = [p for n in cell_order(report.results) for p in report.results[n].rate_fallback]
     for name in cell_order(report.results):
         r = report.results[name]
         costs = cost_means(r)
@@ -681,6 +683,13 @@ def cost_table(report: Report, summaries: Mapping[str, CellSummary]) -> str:
         )
         + "\n$ per complete set is the mean $ per case over the mean CR@10. "
         "Latency is the laptop runner's (§6, deviation 6).\n"
+        + (
+            ""
+            if not fallback
+            else "\nPasses with no finished first run, so no rate of their own: their stopped "
+            f"runs are priced at ${FALLBACK_RATE}/Mtok, the selection export's rate "
+            f"(addendum item 22): {', '.join(f'`{p}`' for p in fallback)}.\n"
+        )
         + (
             ""
             if report.costs is not None
