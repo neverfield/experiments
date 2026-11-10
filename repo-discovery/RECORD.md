@@ -24,8 +24,11 @@ agent store (`bc-c364fa0b-55a8-56e7-96c4-2b320bedf063`), not here; a path writte
 | Lessons | [#12](https://github.com/neverfield/experiments/pull/12), [#23](https://github.com/neverfield/experiments/pull/23), [#25](https://github.com/neverfield/experiments/pull/25), [#28](https://github.com/neverfield/experiments/pull/28), [#29](https://github.com/neverfield/experiments/pull/29) | `bc-b061dd98-2e18-5b63-907f-06412e47f598` and the workers | |
 | Linux runner, pre-test fixes, scripted controls | [#31](https://github.com/neverfield/experiments/pull/31), [#32](https://github.com/neverfield/experiments/pull/32), [#33](https://github.com/neverfield/experiments/pull/33) | `bc-ab8b72fd-57be-4f36-a496-c9394d912d35` | |
 | Preregistration and test run (EXP-13) | [#34](https://github.com/neverfield/experiments/pull/34), [#35](https://github.com/neverfield/experiments/pull/35), [#36](https://github.com/neverfield/experiments/pull/36) | `bc-ab8b72fd-57be-4f36-a496-c9394d912d35` (#36: `bc-a6c757c7-7494-5524-9e93-8395a751ed9a`) | [PREREGISTRATION.md](PREREGISTRATION.md), store `internal/reconcile/test-run-brief.md` |
+| Test reruns: §7.7's addendum, items 1–21 (EXP-13) | [#38](https://github.com/neverfield/experiments/pull/38) | `bc-084152b8-02b8-5000-b1f0-2ba1b6c002fb` | [PREREGISTRATION.md](PREREGISTRATION.md) §7, store `internal/scoring-freeze/` |
+| Test scoring: freeze, and item 22's fallback rate (EXP-13) | [#39](https://github.com/neverfield/experiments/pull/39), [#42](https://github.com/neverfield/experiments/pull/42) | `bc-224070da-01e8-5e7d-877c-874257b50263` (Mac tests, merge and scoring: `bc-44045ea2-08c4-50ea-ad04-19d1642ee803`) | [TEST_ANALYSIS.md](TEST_ANALYSIS.md), store `internal/scoring-freeze/heldout-score-ae33125/record.md` |
+| Held-out results (EXP-13) | | `bc-44045ea2-08c4-50ea-ad04-19d1642ee803` | store `docs/heldout-results.md`, `docs/heldout-test-report/` |
 
-## Status (as of 2026-11-08)
+## Status (as of 2026-11-10)
 
 - Every reported result is on the 61 dev cases. The selection step froze the picks on dev on
   2026-10-29 (store `docs/selection-step.md`).
@@ -41,11 +44,17 @@ agent store (`bc-c364fa0b-55a8-56e7-96c4-2b320bedf063`), not here; a path writte
   Test spend was $862.41 when they ended. On the way, 6 passes were withdrawn because the
   agent's MCP tool never reached its server, and the cap rose to $925 for the last queue.
   §7.7's addendum records these and every other deviation in the reruns.
-- 32 of the 34 test passes are accepted. On 2026-11-08, before any score was read, both
-  `u50-real-c1-L2` passes kept from 11-01 were withdrawn, to be rerun whole from `c4b458f`.
-  The run recorded no commit for either, and pass 2 ran on an unpushed commit (the addendum's
-  item 13). No test pass has been scored, and no test result has been reported.
-- Next: entry 6's four exploratory L5 N = 50 test passes run by hand at a $935 cap (item 14),
-  and the two `u50-real-c1-L2` reruns at a $950 cap (item 13). The test passes are scored only
-  after the addendum is committed. `repo-discovery run`, `evaluate` and `scripts/test_report.py`
-  need `--registered` for test cases.
+- All 34 registered test passes are accepted. On 2026-11-08, before any score was read, both
+  `u50-real-c1-L2` passes kept from 11-01 were withdrawn and rerun whole from `c4b458f`. The
+  run recorded no commit for either, and pass 2 ran on an unpushed commit (the addendum's
+  item 13). Entry 6's four exploratory L5 N = 50 passes ran too (item 14). Test spend was
+  $921.70 when the last pass ended.
+- Scoring was frozen at `683880b` ([TEST_ANALYSIS.md](TEST_ANALYSIS.md)). It stopped twice
+  there, before any score was read, on agent passes with no finished first run to price from.
+  Item 22 prices those runs at the dev selection's rate, and scoring was frozen again at
+  `ae33125`.
+- On 2026-11-10 the held-out test was scored once, at `ae33125`. All six H1–H3 tests reject H0
+  after Holm's adjustment. The results are in store `docs/heldout-results.md`, and the
+  scorer's report is store `docs/heldout-test-report/`.
+- `repo-discovery run`, `evaluate` and `scripts/test_report.py` need `--registered` for test
+  cases.
