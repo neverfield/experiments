@@ -1,6 +1,6 @@
 # Held-out test analysis
 
-The scoring and analysis code for the held-out test run, frozen before any test score is read. It implements §4 of [PREREGISTRATION.md](PREREGISTRATION.md) with entries 6 and 7 and the addendum to entry 7 (items 1–19 and 22). The addendum's items 15–19 were recorded on 2026-11-09, on branch `cursor/prereg-7-7-addendum-02fb`, at `c8c2edc` when scoring was frozen. Item 22 was recorded on 2026-11-10, after scoring stopped at `683880b`, and scoring is frozen again at the commit that implements it ([Freeze record](#freeze-record)). Where those leave a choice open, the code makes one, and [Open choices](#open-choices) lists each with its decision or a recommendation.
+The scoring and analysis code for the held-out test run, frozen before any test score is read. It implements §4 of [PREREGISTRATION.md](PREREGISTRATION.md) with entries 6 and 7 and the addendum to entry 7 (items 1–19 and 22). The addendum's items 15–19 were recorded on 2026-11-09, on branch `cursor/prereg-7-7-addendum-02fb`, at `c8c2edc` when scoring was frozen. Item 22 was recorded on 2026-11-10, after scoring stopped at `683880b`, and scoring is frozen again at `ae33125`, which implements it ([Freeze record](#freeze-record)). Where those leave a choice open, the code makes one, and [Open choices](#open-choices) lists each with its decision or a recommendation.
 
 | File | What it holds |
 |---|---|
@@ -249,7 +249,7 @@ Run on the frozen commit:
 
 ### Item 22: the fallback rate
 
-Scoring at `683880b` stopped in `_rate`, because 5 agent passes have no finished first run (addendum item 22). The commit that implements item 22 changes the scoring code only there.
+Scoring at `683880b` stopped in `_rate`, because 5 agent passes have no finished first run (addendum item 22). Scoring is frozen again at `ae33125b59adca781e1382dd4320f84bf72ef9d1`, which implements item 22 and changes the scoring code only there.
 - `heldout_score.pass_rate` returns `_rate`'s value for a pass, or None where `_rate` would stop or divide by zero. `score_cell` then uses `heldout_plan.FALLBACK_RATE` and records the pass in `CellResult.rate_fallback`.
 - Each such pass is listed in its cell's notes, which appear in the cells table and `results.json`, and in the frontier's notes. It's also named in a footnote to the cost table.
 - Nothing else changes. With no fallback pass, no output mentions it.
