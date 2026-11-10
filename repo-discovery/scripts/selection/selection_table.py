@@ -27,8 +27,6 @@ read, the files excluded and the report cross-checks), and ``charts/<group>.svg`
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 from pathlib import Path
 
 from repo_discovery import selection
@@ -53,41 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     waiting = selection.undescribed(inbox)
     left_out = selection.excluded(registry, inbox)
     pooled = selection.pool_runs(rows, split)
-    results = [
-        (s, selection.frontier(pooled, args.metric, tolerance=args.cost_tolerance, scenario=s))
-        for s in selection.SCENARIOS
-    ]
-    standings = results[0][1]
-
-    args.out.mkdir(parents=True, exist_ok=True)
-    records = [selection.record(r) for r in sorted(rows, key=_order)]
-    (args.out / "cells.json").write_text(json.dumps(records, indent=1) + "\n", encoding="utf-8")
-    with (args.out / "cells.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(records[0]))
-        writer.writeheader()
-        writer.writerows(records)
-    for i, (scenario, scenario_standings) in enumerate(results):
-        stem = "frontier" if i == 0 else f"frontier-{scenario.slug}"
-        (args.out / f"{stem}.md").write_text(
-            f"Scenario: {scenario.title}.\n\n"
-            + selection.frontier_markdown(scenario_standings, args.metric),
-            encoding="utf-8",
-        )
-        summary = _summary(scenario_standings)
-        (args.out / f"{stem}.json").write_text(
-            json.dumps(summary, indent=1) + "\n", encoding="utf-8"
-        )
-    (args.out / "scenarios.md").write_text(
-        selection.scenarios_markdown(results, args.metric), encoding="utf-8"
-    )
-    charts = args.out / "charts"
-    charts.mkdir(exist_ok=True)
-    for group, members in standings.items():
-        size, names, salt = group
-        name = f"u{size}-{names}" + (f"-{salt}" if salt else "")
-        (charts / f"{name}.svg").write_text(
-            selection.svg_chart(group, members, args.metric), encoding="utf-8"
-        )
+    selection.write_frontier(args.out, rows, pooled, args.metric, args.cost_tolerance)
 
     audit = [
         f"dev cases: {len(split.cases)} in {len({c.ecosystem for c in split.cases})} ecosystems",
@@ -110,12 +74,12 @@ def main(argv: list[str] | None = None) -> int:
         + ", ".join(f"{k} {v:g}" for k, v in selection.COST_FLOOR.items())
     )
     audit.append("files read, each audited against the dev split:")
-    for row in sorted(rows, key=_order):
+    for row in sorted(rows, key=selection.row_order):
         if row.data:
             label = f"{selection.group_title(row.cell.group)} | {row.cell.label()}"
             audit.append(f"  {label}: {row.data}")
     audit.append("cross-checks against reported values:")
-    for row in sorted(rows, key=_order):
+    for row in sorted(rows, key=selection.row_order):
         for check in row.checks:
             audit.append(f"  {selection.group_title(row.cell.group)} | {row.cell.label()}: {check}")
     (args.out / "audit.txt").write_text("\n".join(audit) + "\n", encoding="utf-8")
@@ -123,26 +87,6 @@ def main(argv: list[str] | None = None) -> int:
     mismatches = [c for r in rows for c in r.checks if c.startswith("MISMATCH")]
     print(f"cross-checks: {sum(len(r.checks) for r in rows)}, mismatches: {len(mismatches)}")
     return 0
-
-
-def _summary(standings: dict) -> dict:
-    return {
-        selection.group_title(group): [
-            {
-                **selection.record(s.row),
-                "on_frontier": s.on_frontier,
-                "dominated_by": [d.cell.label() for d in s.dominated_by],
-                "one_case_from": [n.cell.label() for n in s.near],
-            }
-            for s in members
-        ]
-        for group, members in standings.items()
-    }
-
-
-def _order(row: selection.Row) -> tuple:
-    size, names, salt = row.cell.group
-    return (size, names, salt or "", -row.quality[next(iter(row.quality))].mean, row.cell.label())
 
 
 if __name__ == "__main__":

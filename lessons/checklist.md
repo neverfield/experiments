@@ -42,6 +42,7 @@ Read this before designing an experiment, and answer each line in a sentence or 
 - [ ] Keep blinded test files out of shared stores, or in one folder that every store search excludes with a glob that doesn't depend on the working directory (`rg -g '!**/test-run/**'`), written into the store's agent instructions before the first file lands. ([why](process/keep-blinded-run-files-out-of-every-shared-text-search.md))
 - [ ] Give the analysis a way to withdraw a run: a rule keyed on file and commit, with a reason, whose file is still audited. Use it before the rerun lands, so the two are never pooled, and rerun the whole cell, not only the cases that were hit. ([why](process/withdraw-a-contaminated-run-in-the-registry-before-its-rerun-lands.md))
 - [ ] If a frontier compares several costs, put a cost tolerance and floors in its rule, and plan to show what the 0% frontier adds. ([why](measurement/give-a-cost-frontier-over-several-dimensions-a-tolerance.md))
+- [ ] Before the test run, copy a few dev cases' complete raw outputs per method (event streams, traces, server logs, predictions, `run.env`) to the store, so later analyses can be tested on real formats while the test runs stay blind. ([why](measurement/keep-dev-copies-of-every-raw-log-an-analysis-may-parse.md))
 
 ## Infrastructure
 
@@ -49,6 +50,7 @@ Read this before designing an experiment, and answer each line in a sentence or 
 - [ ] Stage model weights and data before the run, with checksums and a `DONE` marker. ([why](infrastructure/stage-downloads-before-the-run.md))
 - [ ] Build per-case sandboxes over a large corpus from hard links, not copies, and log setup time apart from run time. ([why](infrastructure/hard-link-corpus-files-into-per-case-workspaces.md))
 - [ ] Check required secrets at the start of each run, without printing them. ([why](infrastructure/check-required-secrets-at-the-start-of-each-run.md))
+- [ ] Put blinded test outputs where analysis agents' searches can't reach them (a separate store, or a folder they can't read). Beside blinded data, read files by exact path, and test any search exclusion on a dummy tree first. ([why](infrastructure/keep-blinded-outputs-where-searches-cant-reach-them.md))
 - [ ] Key every cache on a hash of its input, not on IDs that repeat across builds, and give each replicate and each build its own key. ([why](infrastructure/key-caches-on-a-hash-of-what-they-store.md))
 - [ ] Run from a pushed commit, and put its SHA in the report. ([why](process/run-experiments-from-a-pushed-commit.md))
 - [ ] In a build chain, gate each step on its error count as well as its exit code, and top up partial failures before the next step runs. ([why](infrastructure/gate-each-build-step-on-its-error-count-not-its-exit-code.md))
