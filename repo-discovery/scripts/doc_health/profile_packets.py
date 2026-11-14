@@ -36,7 +36,7 @@ from degrade import DEV_CASES, dev_cases
 
 from repo_discovery.cards import strip_markup
 from repo_discovery.cases import Case, repo_key
-from repo_discovery.contract import Universe, evidence_dir, resolve_universe
+from repo_discovery.contract import GROUPS, evidence_dir, group_of, raw_rows, resolve_universe
 from repo_discovery.evidence import (
     GITHUB_METADATA_FILE,
     PATH_LIST_FILES,
@@ -276,10 +276,7 @@ def snapshot_features(args: tuple[str, str, str, str | None]) -> dict:
 
 def universe_rows(corpus: Path, size: int, case_id: str) -> list[dict]:
     """The raw universe lines, which keep the builder's ``source`` (frame, same_owner, wideswe)."""
-    root = resolve_universe(corpus / "universes" / "monthly" / f"u{size}", case_id)
-    Universe.load(root)
-    with (root / "universe.jsonl").open() as f:
-        return [json.loads(line) for line in f if line.strip()]
+    return raw_rows(resolve_universe(corpus / "universes" / "monthly" / f"u{size}", case_id))
 
 
 def pool_entries(corpus: Path, cases: Sequence[Case], size: int) -> dict[tuple[str, str], str]:
@@ -320,12 +317,6 @@ def features(
 
 
 # Summaries ---------------------------------------------------------------------------
-
-GROUPS = ("gold", "wideswe", "same_owner", "frame")
-
-
-def group_of(role: str, source: str) -> str:
-    return "gold" if role == "gold" else "frame" if source == "frame" else source
 
 
 def quantiles(values: Sequence[float]) -> dict:

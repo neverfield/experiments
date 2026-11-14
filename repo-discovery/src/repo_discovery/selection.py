@@ -29,6 +29,7 @@ audited against the dev split, and listed in the audit, but never become rows.
 
 from __future__ import annotations
 
+import csv
 import json
 import math
 import os
@@ -51,7 +52,7 @@ MB = 1_000_000
 METRICS = ("CompleteRecall@10", "CompleteRecall@50")
 METHODS = ("static", "static-open", "c1", "c2", "l5", "l5+search", "closed-book")
 NAMES = ("real", "hidden")
-SALTS = ("published", "memory-check", "v1")
+SALTS = ("published", "memory-check", "v1", "test")
 LEVELS = ("L0", "L1", "L1live", "L2", "L3", "L3+paths", "L3+docs", "L3+contracts", "L4")
 BACKINGS = ("predictions", "per-case", "report")
 LISTING_PAGE = 100
@@ -750,6 +751,14 @@ def resolve(path: str, base: Path) -> Path:
     return expanded if expanded.is_absolute() else base / expanded
 
 
+def cost_tables(registry: Mapping) -> CostTables:
+    """The registry's shared ``fetch`` and ``index`` cost tables."""
+    return CostTables(
+        fetch={lvl: {int(s): v for s, v in by.items()} for lvl, by in registry["fetch"].items()},
+        index=registry.get("index", {}),
+    )
+
+
 def collect(
     registry: Mapping,
     split: DevSplit,
@@ -757,10 +766,7 @@ def collect(
     inbox: Iterable[Path] = (),
 ) -> list[Row]:
     """Every registry cell and inbox file as a row. Inbox data replaces a cell's report values."""
-    tables = CostTables(
-        fetch={lvl: {int(s): v for s, v in by.items()} for lvl, by in registry["fetch"].items()},
-        index=registry.get("index", {}),
-    )
+    tables = cost_tables(registry)
     entries: dict[Cell, Mapping] = {}
     for entry in expand_entries(registry.get("cells", [])):
         cell = Cell.from_dict(entry)
@@ -1234,6 +1240,63 @@ def svg_chart(
 
 def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def row_order(row: Row) -> tuple:
+    size, names, salt = row.cell.group
+    return (size, names, salt or "", -row.quality[next(iter(row.quality))].mean, row.cell.label())
+
+
+def standings_summary(standings: Mapping) -> dict:
+    return {
+        group_title(group): [
+            {
+                **record(s.row),
+                "on_frontier": s.on_frontier,
+                "dominated_by": [d.cell.label() for d in s.dominated_by],
+                "one_case_from": [n.cell.label() for n in s.near],
+            }
+            for s in members
+        ]
+        for group, members in standings.items()
+    }
+
+
+def write_frontier(
+    out: Path,
+    rows: Sequence[Row],
+    pooled: Sequence[Row],
+    metric: str = "CompleteRecall@10",
+    tolerance: float = COST_TOLERANCE,
+) -> list[tuple[Scenario, dict]]:
+    """Every row to ``cells.csv`` and ``cells.json``; each scenario's frontier over the
+    ``pooled`` rows to ``frontier[-<scenario>].md`` and ``.json``; ``scenarios.md``; and
+    the every-cost frontier of each group to ``charts/<group>.svg``."""
+    results = [(s, frontier(pooled, metric, tolerance=tolerance, scenario=s)) for s in SCENARIOS]
+    out.mkdir(parents=True, exist_ok=True)
+    records = [record(r) for r in sorted(rows, key=row_order)]
+    (out / "cells.json").write_text(json.dumps(records, indent=1) + "\n", encoding="utf-8")
+    with (out / "cells.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(records[0]))
+        writer.writeheader()
+        writer.writerows(records)
+    for i, (scenario, standings) in enumerate(results):
+        stem = "frontier" if i == 0 else f"frontier-{scenario.slug}"
+        (out / f"{stem}.md").write_text(
+            f"Scenario: {scenario.title}.\n\n" + frontier_markdown(standings, metric),
+            encoding="utf-8",
+        )
+        (out / f"{stem}.json").write_text(
+            json.dumps(standings_summary(standings), indent=1) + "\n", encoding="utf-8"
+        )
+    (out / "scenarios.md").write_text(scenarios_markdown(results, metric), encoding="utf-8")
+    charts = out / "charts"
+    charts.mkdir(exist_ok=True)
+    for group, members in results[0][1].items():
+        size, names, salt = group
+        name = f"u{size}-{names}" + (f"-{salt}" if salt else "")
+        (charts / f"{name}.svg").write_text(svg_chart(group, members, metric), encoding="utf-8")
+    return results
 
 
 def load_registry(path: Path) -> dict:

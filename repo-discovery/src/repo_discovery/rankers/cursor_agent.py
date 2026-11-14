@@ -27,6 +27,12 @@ after each of ``retry_pauses``.
 With ``evidence="names"`` (closed book) the workspace holds only ``candidates.txt`` and
 the prompt says nothing else about the candidates is available.
 
+``prompt="neutral"`` asks for the repositories that need edits instead of every one: it
+leaves out the paragraph saying a change often spans more than one repository and naming
+the roles to look for, and asks for a list of only those the agent judges need edits,
+stopped after the last of them, rather than the top ``k``. The trace records the prompt
+and ``max_turns``.
+
 With ``evidence="on-demand"`` (fetch level L5) the workspace starts with
 ``candidates.txt`` and an empty ``packets/``, and the case's ``HOME`` configures one MCP
 server, :mod:`repo_discovery.rankers.open_repo`, whose ``open_repo`` tool places up to
@@ -131,6 +137,25 @@ configure, document or test the behavior the request touches.
 Finish with the {k} repositories most likely to need edits, most likely first, as a JSON \
 array of owner/name strings in a ```json code block, with nothing after it.
 """
+NEUTRAL_PROMPT = """\
+Find the repositories that this change request needs edits in.
+
+<change_request>
+{request}
+</change_request>
+
+This workspace holds {n} candidate repositories. `candidates.txt` lists them as \
+owner/name, one per line. {workspace}
+
+Explore with the read, grep and glob tools. Shell commands and web access are disabled, \
+so don't try them. You have at most {max_turns} rounds of tool calls (parallel calls in \
+one round count once); answer before you run out.
+
+Finish with the repositories that need edits, most likely first, as a JSON array of \
+owner/name strings in a ```json code block, with nothing after it. List only those you \
+judge need edits, at most {k}, and stop the list after the last of them.
+"""
+PROMPTS = {"default": PROMPT, "neutral": NEUTRAL_PROMPT}
 WORKSPACE = {
     "packets": "Each repository's extracted evidence is under `repos/<owner>__<name>/`: "
     "{contents}.",
@@ -767,9 +792,15 @@ class CursorAgentRanker:
         search_index: Path | None = None,
         isolation: str = "auto",
         rerun_provider_errors: bool = True,
+        prompt: str = "default",
     ) -> None:
         if not os.environ.get("CURSOR_API_KEY"):
             raise RuntimeError("CURSOR_API_KEY is not set")
+        if prompt not in PROMPTS:
+            raise ValueError(f"prompt must be one of {sorted(PROMPTS)}, got {prompt!r}")
+        if max_turns < 1:
+            raise ValueError("max_turns must be at least 1")
+        self.prompt = prompt
         if isolation not in ISOLATION:
             raise ValueError(f"isolation must be one of {ISOLATION}, got {isolation!r}")
         if isolation == "required" and (reason := sandbox.unavailable()):
@@ -913,7 +944,7 @@ class CursorAgentRanker:
             zero=ZERO_BUDGET if self.open_budget == 0 else "",
             contents=PACKET_CONTENTS.get(self.open_level if on_demand else level),
         ) + (SEARCH.format(index=SEARCH_INDEX[self.evidence]) if self.search else "")
-        prompt = PROMPT.format(
+        prompt = PROMPTS[self.prompt].format(
             request=query.prompt.strip(),
             n=len(repos),
             k=k,
@@ -1041,6 +1072,8 @@ class CursorAgentRanker:
             "anonymized": self.anonymized,
             "isolation": isolation,
             "universe_size": universe_size,
+            "prompt": self.prompt,
+            "max_turns": self.max_turns,
             "k_requested": k,
             "status": run.status,
             "follow_up_status": follow_up.status if follow_up else None,

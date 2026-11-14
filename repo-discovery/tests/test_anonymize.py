@@ -66,6 +66,31 @@ def test_repository_named_after_its_owner_takes_the_owner_id(names: Pseudonyms) 
     assert names.repo("getsentry/sentry-cli").split("/")[1].startswith("r")
 
 
+def test_collapsed_owners_share_one_id_and_keep_repository_ids(names: Pseudonyms) -> None:
+    collapsed = Pseudonyms.build(REPOS, b"test-salt", collapse_owners=True)
+    [shared] = set(collapsed.owners.values())
+    assert collapsed.collapsed and not names.collapsed
+    assert shared not in names.owners.values()
+    assert len(set(collapsed.repos.values())) == len(REPOS)
+    for repo in REPOS:
+        owner, name = collapsed.repo(repo).split("/")
+        assert owner == shared and re.fullmatch(r"r[0-9a-f]{8}", name)
+        if names.repo(repo).split("/")[1].startswith("r"):
+            assert name == names.repo(repo).split("/")[1]
+
+
+def test_collapsed_owner_logins_become_the_shared_id() -> None:
+    collapsed = Pseudonyms.build(REPOS, b"test-salt", collapse_owners=True)
+    shared, sentry = collapsed.owner("getsentry"), collapsed.repo("getsentry/sentry").split("/")[1]
+    text = "Ship getsentry/sentry-cli with SvelteKit; ask Sentry, the getsentry org, sveltejs."
+    stats = ScrubStats()
+    assert Scrubber(collapsed).scrub(text, None, stats) == (
+        f"Ship {collapsed.repo('getsentry/sentry-cli')} with {collapsed.repo('sveltejs/kit')}; "
+        f"ask {sentry}, the {shared} org, {shared}."
+    )
+    assert stats.by_kind == {"full": 1, "qualified": 1, "name": 1, "owner": 2}
+
+
 def test_scrub_replaces_full_qualified_bare_and_owner_mentions(names: Pseudonyms) -> None:
     cli = names.repo("getsentry/sentry-cli")
     owner, name = cli.split("/")
