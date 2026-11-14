@@ -116,3 +116,19 @@ def resolve_universe(root: Path, case_id: str) -> Path:
     if (per_case / UNIVERSE_FILE).is_file():
         return per_case
     raise FileNotFoundError(f"no {UNIVERSE_FILE} in {root} or {per_case}")
+
+
+GROUPS = ("gold", "wideswe", "same_owner", "frame")
+
+
+def raw_rows(root: Path) -> list[dict]:
+    """The universe's lines as written, which keep the builder's ``source`` (``wideswe``,
+    ``same_owner`` or ``frame``); checked against the contract first."""
+    Universe.load(root)
+    with (root / UNIVERSE_FILE).open(encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+def group_of(role: str, source: str | None) -> str:
+    """A candidate's group in ``GROUPS``: gold, WideSWE context, same-owner layer or frame."""
+    return "gold" if role == "gold" else "frame" if source == "frame" else str(source)

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from repo_discovery import harness
-from repo_discovery.cases import Case, Query
+from repo_discovery.cases import Case, Query, RepoAtCommit, write_cases
 from repo_discovery.contract import Universe
 from repo_discovery.fetch_levels import restrict
 from repo_discovery.rankers import sandbox, search_repos
@@ -457,6 +457,70 @@ def test_anonymized_prompt_says_names_are_ids(
     assert json.loads((ranker.trace_dir / "c1.json").read_text())["anonymized"] == anonymized
     with pytest.raises(ValueError, match="anonymized"):
         fake_agent("answer", anonymized="partly")
+
+
+def test_neutral_prompt_drops_the_multi_repository_hint_and_is_recorded(
+    fake_agent, make_universe
+) -> None:
+    universe = Universe.load(make_universe(universe_entries())).view()
+    query = Query("c1", "Fix billing.", "2026-03-01T00:00:00+00:00")
+    runs = (({}, ("default", 20)), ({"prompt": "neutral", "max_turns": 7}, ("neutral", 7)))
+    for options, recorded in runs:
+        ranker, log = fake_agent("answer", **options)
+        ranker.rank(query, universe)
+        trace = json.loads((ranker.trace_dir / "c1.json").read_text())
+        assert (trace["prompt"], trace["max_turns"]) == recorded
+    default, neutral = (c["prompt"] for c in calls(log))
+    assert "Find every repository" in default and "more than one repository" in default
+    assert "Find the repositories" in neutral and "more than one repository" not in neutral
+    assert "consume, configure, document or test" not in neutral
+    assert "stop the list after the last of them" in neutral and "at most 7 rounds" in neutral
+    assert "Fix billing." in neutral and "repos/<owner>__<name>/" in neutral
+    with pytest.raises(ValueError, match="prompt"):
+        fake_agent("answer", prompt="terse")
+    with pytest.raises(ValueError, match="max_turns"):
+        fake_agent("answer", max_turns=0)
+
+
+def test_dev_run_passes_the_turn_cap_and_prompt_to_the_agent(tmp_path: Path, make_universe) -> None:
+    binary = tmp_path / "bin" / "cursor-agent"
+    binary.parent.mkdir()
+    binary.write_text(FAKE_AGENT.format(python=sys.executable))
+    binary.chmod(0o755)
+    make_universe(universe_entries(), name="universes/c1")
+    cases = tmp_path / "cases.jsonl"
+    gold = (RepoAtCommit("acme/billing", f"{0:040x}"),)
+    cutoff = "2026-03-01T00:00:00+00:00"
+    write_cases(cases, [Case("c1", "toy", "js", "Fix billing.", gold, cutoff, split="dev")])
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    env = {
+        **os.environ,
+        "PATH": f"{binary.parent}{os.pathsep}{os.environ['PATH']}",
+        "PYTHONPATH": os.pathsep.join(p for p in (src, os.environ.get("PYTHONPATH")) if p),
+        "CURSOR_API_KEY": "test-key",
+        "FAKE_SCENARIO": "loop",
+        "FAKE_LOG": str(tmp_path / "fake.log"),
+    }
+    run = subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).resolve().parents[1] / "scripts" / "v5_dev_run.py"),
+            *("--cases", str(cases), "--universes", str(tmp_path / "universes")),
+            *("--out", str(tmp_path / "pred.jsonl"), "--trace-dir", str(tmp_path / "traces")),
+            *("--workers", "1", "--isolation", "off", "--max-turns", "3", "--prompt", "neutral"),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert run.returncode == 0, run.stderr
+    trace = json.loads((tmp_path / "traces" / "c1.json").read_text())
+    assert (trace["status"], trace["prompt"], trace["max_turns"]) == ("turn_budget", "neutral", 3)
+    assert trace["runs"][0]["tool_turns"] == 4
+    first = calls(tmp_path / "fake.log")[0]["prompt"]
+    assert "at most 3 rounds" in first and "stop the list after the last of them" in first
 
 
 def test_on_demand_opens_packets_within_budget(fake_agent, make_universe) -> None:

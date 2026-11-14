@@ -3,7 +3,6 @@ get a registration commit the checkout descends from."""
 
 from __future__ import annotations
 
-import json
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -82,23 +81,19 @@ def test_cli_passes_the_registration_to_the_check(
 
 
 def test_test_report_checks_the_registration_before_reading_anything(tmp_path: Path) -> None:
-    missing = str(tmp_path / "missing.json")
+    missing, out = str(tmp_path / "missing.json"), tmp_path / "out"
     with pytest.raises(SystemExit, match="--registered"):
-        report.main([missing, "--comparisons", missing])
+        report.main([missing, "--out", str(out)])
     with pytest.raises(SystemExit, match="not a commit"):
-        report.main([missing, "--comparisons", missing, "--registered", "f" * 40])
+        report.main([missing, "--out", str(out), "--registered", "f" * 40])
+    assert not out.exists()
 
 
-def test_test_report_runs_once_registered(
-    tmp_path: Path, split_cases: Path, tiny_universes: Path, seen: list[str | None], capsys
+def test_test_report_passes_the_registration_to_the_check(
+    tmp_path: Path, seen: list[str | None]
 ) -> None:
-    out = tmp_path / "test.jsonl"
-    assert run(split_cases, tiny_universes, out, "--split", "test", "--registered", "a1") == 0
-    cell = {"names": "real", "size": 50, "cases": str(split_cases)}
-    cells = tmp_path / "cells.json"
-    cells.write_text(json.dumps({name: {**cell, "predictions": [str(out)]} for name in "ab"}))
-    comparisons = tmp_path / "comparisons.json"
-    comparisons.write_text(json.dumps([{"id": "H1", "a": "a", "b": "b", "family": "confirmatory"}]))
-    assert report.main([str(cells), "--comparisons", str(comparisons), "--registered", "a1"]) == 0
-    assert "| a | real | 50 | 1 |" in capsys.readouterr().out
-    assert seen == ["a1", "a1"]
+    missing, out = tmp_path / "missing.json", tmp_path / "out"
+    with pytest.raises(FileNotFoundError, match=r"missing\.json"):
+        report.main([str(missing), "--out", str(out), "--registered", "a1", "--allow-dirty"])
+    assert seen == ["a1"]
+    assert not out.exists()
